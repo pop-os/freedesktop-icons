@@ -50,12 +50,11 @@ impl ThemePath {
 mod test {
     use crate::theme::paths::icon_theme_base_paths;
     use crate::theme::{get_all_themes, Theme};
-    use anyhow::Result;
     use speculoos::prelude::*;
 
     #[test]
     fn should_get_all_themes() {
-        let themes = get_all_themes().unwrap();
+        let themes = get_all_themes();
         assert_that!(themes.get("hicolor")).is_some();
     }
 
@@ -66,10 +65,9 @@ mod test {
     }
 
     #[test]
-    fn should_read_theme_index() -> Result<()> {
-        let themes = get_all_themes()?;
+    fn should_read_theme_index() {
+        let themes = get_all_themes();
         let themes: Vec<&Theme> = themes.values().flatten().collect();
         assert_that!(themes).is_not_empty();
-        Ok(())
     }
 }

@@ -46,7 +46,7 @@ impl Theme {
             .unwrap_or_default()
     }
 
-    fn get_directory<'a>(&'a self, name: &'a str) -> Option<Directory> {
+    fn get_directory<'a>(&'a self, name: &'a str) -> Option<Directory<'a>> {
         self.index.section(Some(name)).map(|props| {
             let size = props
                 .get("Size")

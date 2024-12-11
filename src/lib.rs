@@ -223,12 +223,9 @@ impl<'a> LookupBuilder<'a> {
         // If the icon was previously search but not found, we return
         // `None` early, otherwise, attempt to perform a lookup
         if self.cache {
-            match self.cache_lookup(self.theme) {
-                CacheEntry::Found(icon) => {
-                    return Some(icon);
-                }
-                _ => {}
-            };
+            if let CacheEntry::Found(icon) = self.cache_lookup(self.theme) {
+                return Some(icon);
+            }
         }
 
         // Then lookup in the given theme

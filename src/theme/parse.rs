@@ -47,12 +47,9 @@ impl Theme {
     }
 
     fn get_directory<'a>(&'a self, name: &'a str) -> Option<Directory<'a>> {
-        self.index.section(Some(name)).map(|props| {
-            let size = props
-                .get("Size")
-                .and_then(|size| str::parse(size).ok())
-                .expect("Size not found for icon");
-            Directory {
+        self.index.section(Some(name)).and_then(|props| {
+            let size = props.get("Size").and_then(|size| str::parse(size).ok())?;
+            Some(Directory {
                 name,
                 size,
                 scale: props
@@ -76,7 +73,7 @@ impl Theme {
                     .get("Threshold")
                     .and_then(|thrsh| str::parse(thrsh).ok())
                     .unwrap_or(2),
-            }
+            })
         })
     }
 }

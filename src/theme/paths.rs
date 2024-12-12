@@ -13,7 +13,6 @@ pub(crate) static BASE_PATHS: Lazy<Vec<PathBuf>> = Lazy::new(icon_theme_base_pat
 /// Look in $HOME/.icons (for backwards compatibility), in $XDG_DATA_DIRS/icons, in $XDG_DATA_DIRS/pixmaps and in /usr/share/pixmaps (in that order).
 /// Paths that are not found are filtered out.
 fn icon_theme_base_paths() -> Vec<PathBuf> {
-    let home_icon_dir = home_dir().expect("No $HOME directory").join(".icons");
     let mut data_dirs: Vec<_> = BaseDirectories::new()
         .map(|bd| {
             let mut data_dirs: Vec<_> = bd
@@ -27,7 +26,10 @@ fn icon_theme_base_paths() -> Vec<PathBuf> {
             data_dirs
         })
         .unwrap_or_default();
-    data_dirs.push(home_icon_dir);
+    match home_dir().map(|home| home.join(".icons")) {
+        Some(home_icon_dir) => data_dirs.push(home_icon_dir),
+        None => tracing::warn!("No $HOME directory found"),
+    }
     data_dirs.into_iter().filter(|p| p.exists()).collect()
 }
 

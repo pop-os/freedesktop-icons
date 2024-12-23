@@ -68,7 +68,7 @@ mod theme;
 /// # fn main() {
 /// use cosmic_freedesktop_icons::list_themes;
 ///
-/// let themes: Vec<&str> = list_themes();
+/// let themes: Vec<String> = list_themes();
 ///
 /// assert_eq!(themes, vec![
 ///     "Adwaita", "Arc", "Breeze Light", "HighContrast", "Papirus", "Papirus-Dark",

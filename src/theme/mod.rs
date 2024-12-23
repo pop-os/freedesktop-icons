@@ -241,7 +241,7 @@ mod test {
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = crate::theme::read_ini_theme(&t.index);
-            t.try_get_icon_exact_size(file.as_str(), "cosmic-fake-applet", 24, 1, true)
+            t.try_get_icon_exact_size(file.as_str(), "cosmic-fake-applet", 22, 1, true)
         });
         let icon_path = TEST_ASSETS_PATH.join("icons/hicolor/scalable/apps/cosmic-fake-applet.svg");
         assert_that!(icon).is_some().is_equal_to(icon_path);
@@ -253,7 +253,7 @@ mod test {
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = crate::theme::read_ini_theme(&t.index);
-            t.try_get_icon_exact_size(file.as_str(), "cosmic-cat-tracker", 24, 1, false)
+            t.try_get_icon_exact_size(file.as_str(), "cosmic-cat-tracker", 22, 1, false)
         });
 
         let icon_path = TEST_ASSETS_PATH.join("icons/hicolor/22x22/apps/cosmic-cat-tracker.png");

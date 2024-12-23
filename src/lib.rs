@@ -11,7 +11,7 @@
 //! The following snippet get an icon from the default 'hicolor' theme
 //! with the default scale (`1`) and the default size (`24`).
 //!
-//! ```rust
+//! ```rust, no_run
 //! # fn main() {
 //! use cosmic_freedesktop_icons::lookup;
 //!
@@ -23,7 +23,7 @@
 //!
 //! If you have specific requirements for your lookup you can use the provided builder functions:
 //!
-//! ```rust
+//! ```rust, no_run
 //! # fn main() {
 //! use cosmic_freedesktop_icons::lookup;
 //!
@@ -39,7 +39,7 @@
 //! If your application is going to repeat the same icon lookups multiple times
 //! you can use the internal cache to improve performance.
 //!
-//! ```rust
+//! ```rust, no_run
 //! # fn main() {
 //! use cosmic_freedesktop_icons::lookup;
 //!
@@ -64,7 +64,7 @@ mod theme;
 /// Return the list of installed themes on the system
 ///
 /// ## Example
-/// ```rust
+/// ```rust, no_run
 /// # fn main() {
 /// use cosmic_freedesktop_icons::list_themes;
 ///
@@ -117,7 +117,7 @@ pub struct LookupBuilder<'a> {
 /// Build an icon lookup for the given icon name.
 ///
 /// ## Example
-/// ```rust
+/// ```rust, no_run
 /// # fn main() {
 /// use cosmic_freedesktop_icons::lookup;
 ///
@@ -131,7 +131,7 @@ impl<'a> LookupBuilder<'a> {
     /// Restrict the lookup to the given icon size.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -147,7 +147,7 @@ impl<'a> LookupBuilder<'a> {
     /// Restrict the lookup to the given scale.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -162,7 +162,7 @@ impl<'a> LookupBuilder<'a> {
 
     /// Add the given theme to the current lookup :
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -181,7 +181,7 @@ impl<'a> LookupBuilder<'a> {
     /// that repeat the same lookups, an application launcher for instance.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -200,7 +200,7 @@ impl<'a> LookupBuilder<'a> {
     /// if you need a modifiable icon, to match a user theme for instance.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -340,7 +340,7 @@ mod test {
         sync::LazyLock,
     };
 
-    pub static TEST_ASSETS_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+    pub(super) static TEST_ASSETS_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
         let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("test_assets");
         assert!(
             data_dir.exists(),
@@ -349,7 +349,11 @@ mod test {
         data_dir
     });
 
-    pub fn set_fake_icons_path() {
+    /// Override the default search path(s) with a path we control.
+    ///
+    /// This grants us more control over tests rather than relying on the system having the
+    /// themes we need.
+    pub(super) fn set_fake_icons_path() {
         env::set_var("XDG_DATA_DIRS", TEST_ASSETS_PATH.to_str().unwrap());
     }
 

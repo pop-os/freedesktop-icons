@@ -216,13 +216,16 @@ impl Theme {
 
 #[cfg(test)]
 mod test {
-    use crate::THEMES;
+    use crate::{
+        test::{set_fake_icons_path, TEST_ASSETS_PATH},
+        THEMES,
+    };
     use speculoos::prelude::*;
-    use std::path::PathBuf;
 
     #[test]
     fn get_one_icon() {
-        let themes = THEMES.get("Adwaita").unwrap();
+        set_fake_icons_path();
+        let themes = THEMES.get("cosmic-base-dark").unwrap();
         println!(
             "{:?}",
             themes.iter().find_map(|t| {
@@ -233,26 +236,27 @@ mod test {
     }
 
     #[test]
-    fn should_get_png_first() {
+    fn should_get_svg_first() {
+        set_fake_icons_path();
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = crate::theme::read_ini_theme(&t.index);
-            t.try_get_icon_exact_size(file.as_str(), "blueman", 24, 1, true)
+            t.try_get_icon_exact_size(file.as_str(), "cosmic-fake-applet", 24, 1, true)
         });
-        assert_that!(icon).is_some().is_equal_to(PathBuf::from(
-            "/usr/share/icons/hicolor/scalable/apps/blueman.svg",
-        ));
+        let icon_path = TEST_ASSETS_PATH.join("icons/hicolor/scalable/apps/cosmic-fake-applet.svg");
+        assert_that!(icon).is_some().is_equal_to(icon_path);
     }
 
     #[test]
-    fn should_get_svg_first() {
+    fn should_get_png_first() {
+        set_fake_icons_path();
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = crate::theme::read_ini_theme(&t.index);
-            t.try_get_icon_exact_size(file.as_str(), "blueman", 24, 1, false)
+            t.try_get_icon_exact_size(file.as_str(), "cosmic-cat-tracker", 24, 1, false)
         });
-        assert_that!(icon).is_some().is_equal_to(PathBuf::from(
-            "/usr/share/icons/hicolor/22x22/apps/blueman.png",
-        ));
+
+        let icon_path = TEST_ASSETS_PATH.join("icons/hicolor/22x22/apps/cosmic-cat-tracker.png");
+        assert_that!(icon).is_some().is_equal_to(icon_path);
     }
 }

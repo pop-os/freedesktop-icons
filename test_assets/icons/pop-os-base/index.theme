@@ -1,0 +1,9 @@
+[Icon Theme]
+Name=Pop!_OS Base
+Comment=Fake fallback
+Directories=48x48/apps
+
+[48x48/apps]
+Context=Applications
+Size=48
+Type=Fixed

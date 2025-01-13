@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use dirs::home_dir;
-use ini::Ini;
 use once_cell::sync::Lazy;
 use xdg::BaseDirectories;
 
@@ -33,18 +32,18 @@ fn icon_theme_base_paths() -> Vec<PathBuf> {
     data_dirs.into_iter().filter(|p| p.exists()).collect()
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ThemePath(pub PathBuf);
 
 impl ThemePath {
-    pub(super) fn index(&self) -> theme::Result<Ini> {
+    pub(super) fn index(&self) -> theme::Result<PathBuf> {
         let index = self.0.join("index.theme");
 
         if !index.exists() {
             return Err(ThemeError::ThemeIndexNotFound(index));
         }
 
-        Ok(Ini::load_from_file(index)?)
+        Ok(index)
     }
 }
 

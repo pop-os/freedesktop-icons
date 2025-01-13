@@ -1,34 +1,61 @@
 use crate::theme::directories::{Directory, DirectoryType};
 use crate::theme::Theme;
-use ini::Properties;
+
+fn icon_theme_section(file: &str) -> impl Iterator<Item = (&str, &str)> + '_ {
+    ini_core::Parser::new(file)
+        .skip_while(|item| *item != ini_core::Item::Section("Icon Theme"))
+        .take_while(|item| *item != ini_core::Item::SectionEnd)
+        .filter_map(|item| {
+            if let ini_core::Item::Property(key, value) = item {
+                Some((key, value?))
+            } else {
+                None
+            }
+        })
+}
+
+fn directory_section<'a: 'b, 'b>(
+    file: &'a str,
+    section: &'b str,
+) -> impl Iterator<Item = (&'a str, &'a str)> + 'b {
+    ini_core::Parser::new(file)
+        .skip_while(|item| *item != ini_core::Item::Section(section))
+        .take_while(|item| *item != ini_core::Item::SectionEnd)
+        .filter_map(|item| {
+            if let ini_core::Item::Property(key, value) = item {
+                Some((key, value?))
+            } else {
+                None
+            }
+        })
+}
 
 impl Theme {
-    pub(super) fn get_all_directories(&self) -> impl Iterator<Item = Directory> {
-        self.directories()
+    pub(super) fn get_all_directories<'a>(
+        &'a self,
+        file: &'a str,
+    ) -> impl Iterator<Item = Directory<'a>> + 'a {
+        self.directories(file)
             .into_iter()
-            .filter_map(|name| self.get_directory(name))
+            .filter_map(|name| self.get_directory(file, name))
             .chain(
-                self.scaled_directories()
+                self.scaled_directories(file)
                     .into_iter()
-                    .filter_map(|name| self.get_directory(name)),
+                    .filter_map(|name| self.get_directory(file, name)),
             )
     }
 
-    fn scaled_directories(&self) -> Vec<&str> {
-        self.get_icon_theme_section()
-            .and_then(|props| props.get("ScaledDirectories"))
-            .map(|dirs| dirs.split(',').collect())
+    fn scaled_directories<'a>(&self, file: &'a str) -> Vec<&'a str> {
+        icon_theme_section(file)
+            .find(|&(key, _)| key == "ScaledDirectories")
+            .map(|(_, dirs)| dirs.split(',').collect())
             .unwrap_or_default()
     }
 
-    fn get_icon_theme_section(&self) -> Option<&Properties> {
-        self.index.section(Some("Icon Theme"))
-    }
-
-    pub fn inherits(&self) -> Vec<&str> {
-        self.get_icon_theme_section()
-            .and_then(|props| props.get("Inherits"))
-            .map(|parents| {
+    pub fn inherits<'a>(&self, file: &'a str) -> Vec<&'a str> {
+        icon_theme_section(file)
+            .find(|&(key, _)| key == "Inherits")
+            .map(|(_, parents)| {
                 parents
                     .split(',')
                     // Filtering out 'hicolor' since we are going to fallback there anyway
@@ -38,42 +65,46 @@ impl Theme {
             .unwrap_or_default()
     }
 
-    fn directories(&self) -> Vec<&str> {
-        self.index
-            .section(Some("Icon Theme"))
-            .and_then(|props| props.get("Directories"))
-            .map(|dirs| dirs.split(',').collect())
+    fn directories<'a>(&self, file: &'a str) -> Vec<&'a str> {
+        icon_theme_section(file)
+            .find(|&(key, _)| key == "Directories")
+            .map(|(_, dirs)| dirs.split(',').collect())
             .unwrap_or_default()
     }
 
-    fn get_directory<'a>(&'a self, name: &'a str) -> Option<Directory<'a>> {
-        self.index.section(Some(name)).and_then(|props| {
-            let size = props.get("Size").and_then(|size| str::parse(size).ok())?;
-            Some(Directory {
-                name,
-                size,
-                scale: props
-                    .get("Scale")
-                    .and_then(|scale| str::parse(scale).ok())
-                    .unwrap_or(1),
-                context: props.get("Context"),
-                type_: props
-                    .get("Type")
-                    .map(DirectoryType::from)
-                    .unwrap_or_default(),
-                maxsize: props
-                    .get("MaxSize")
-                    .and_then(|max| str::parse(max).ok())
-                    .unwrap_or(size),
-                minsize: props
-                    .get("MinSize")
-                    .and_then(|min| str::parse(min).ok())
-                    .unwrap_or(size),
-                threshold: props
-                    .get("Threshold")
-                    .and_then(|thrsh| str::parse(thrsh).ok())
-                    .unwrap_or(2),
-            })
+    fn get_directory<'a>(&'a self, file: &'a str, name: &'a str) -> Option<Directory<'a>> {
+        let mut size = None;
+        let mut max_size = None;
+        let mut min_size = None;
+        let mut threshold = None;
+        let mut scale = None;
+        // let mut context = None;
+        let mut dtype = DirectoryType::default();
+
+        for (key, value) in directory_section(file, name) {
+            match key {
+                "Size" => size = str::parse(value).ok(),
+                "Scale" => scale = str::parse(value).ok(),
+                // "Context" => context = Some(value),
+                "Type" => dtype = DirectoryType::from(value),
+                "MaxSize" => max_size = str::parse(value).ok(),
+                "MinSize" => min_size = str::parse(value).ok(),
+                "Threshold" => threshold = str::parse(value).ok(),
+                _ => (),
+            }
+        }
+
+        let size = size?;
+
+        Some(Directory {
+            name,
+            size,
+            scale: scale.unwrap_or(1),
+            // context,
+            type_: dtype,
+            maxsize: max_size.unwrap_or(size),
+            minsize: min_size.unwrap_or(size),
+            threshold: threshold.unwrap_or(2),
         })
     }
 }
@@ -86,7 +117,8 @@ mod test {
     #[test]
     fn should_get_theme_parents() {
         for theme in THEMES.get("Arc").unwrap() {
-            let parents = theme.inherits();
+            let file = crate::theme::read_ini_theme(&theme.index).unwrap_or_default();
+            let parents = theme.inherits(&file);
 
             assert_that!(parents).does_not_contain("hicolor");
 

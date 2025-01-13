@@ -3,7 +3,7 @@ pub struct Directory<'a> {
     pub name: &'a str,
     pub size: i16,
     pub scale: i16,
-    pub context: Option<&'a str>,
+    // pub context: Option<&'a str>,
     pub type_: DirectoryType,
     pub maxsize: i16,
     pub minsize: i16,

@@ -13,7 +13,7 @@
 //!
 //! ```rust
 //! # fn main() {
-//! use freedesktop_icons::lookup;
+//! use cosmic_freedesktop_icons::lookup;
 //!
 //! let icon = lookup("firefox").find();
 //! # }
@@ -25,7 +25,7 @@
 //!
 //! ```rust
 //! # fn main() {
-//! use freedesktop_icons::lookup;
+//! use cosmic_freedesktop_icons::lookup;
 //!
 //! let icon = lookup("firefox")
 //!     .with_size(48)
@@ -41,7 +41,7 @@
 //!
 //! ```rust
 //! # fn main() {
-//! use freedesktop_icons::lookup;
+//! use cosmic_freedesktop_icons::lookup;
 //!
 //! let icon = lookup("firefox")
 //!     .with_size(48)
@@ -55,6 +55,7 @@ use theme::BASE_PATHS;
 
 use crate::cache::{CacheEntry, CACHE};
 use crate::theme::{try_build_icon_path, THEMES};
+use std::io::BufRead;
 use std::path::PathBuf;
 
 mod cache;
@@ -65,7 +66,7 @@ mod theme;
 /// ## Example
 /// ```rust
 /// # fn main() {
-/// use freedesktop_icons::list_themes;
+/// use cosmic_freedesktop_icons::list_themes;
 ///
 /// let themes: Vec<&str> = list_themes();
 ///
@@ -74,15 +75,29 @@ mod theme;
 ///     "Papirus-Light", "Breeze", "Breeze Dark", "Breeze", "ePapirus", "ePapirus-Dark", "Hicolor"
 /// ])
 /// # }
-pub fn list_themes() -> Vec<&'static str> {
+pub fn list_themes() -> Vec<String> {
     let mut themes = THEMES
         .values()
         .flatten()
         .map(|path| &path.index)
         .filter_map(|index| {
-            index
-                .section(Some("Icon Theme"))
-                .and_then(|section| section.get("Name"))
+            let file = std::fs::File::open(index).ok()?;
+            let mut reader = std::io::BufReader::new(file);
+
+            let mut line = String::new();
+            while let Ok(read) = reader.read_line(&mut line) {
+                if read == 0 {
+                    break;
+                }
+
+                if let Some(name) = line.strip_prefix("Name=") {
+                    return Some(name.trim().to_owned());
+                }
+
+                line.clear();
+            }
+
+            None
         })
         .collect::<Vec<_>>();
     themes.dedup();
@@ -104,7 +119,7 @@ pub struct LookupBuilder<'a> {
 /// ## Example
 /// ```rust
 /// # fn main() {
-/// use freedesktop_icons::lookup;
+/// use cosmic_freedesktop_icons::lookup;
 ///
 /// let icon = lookup("firefox").find();
 /// # }
@@ -118,7 +133,7 @@ impl<'a> LookupBuilder<'a> {
     /// ## Example
     /// ```rust
     /// # fn main() {
-    /// use freedesktop_icons::lookup;
+    /// use cosmic_freedesktop_icons::lookup;
     ///
     /// let icon = lookup("firefox")
     ///     .with_size(48)
@@ -134,7 +149,7 @@ impl<'a> LookupBuilder<'a> {
     /// ## Example
     /// ```rust
     /// # fn main() {
-    /// use freedesktop_icons::lookup;
+    /// use cosmic_freedesktop_icons::lookup;
     ///
     /// let icon = lookup("firefox")
     ///     .with_scale(2)
@@ -149,7 +164,7 @@ impl<'a> LookupBuilder<'a> {
     /// ## Example
     /// ```rust
     /// # fn main() {
-    /// use freedesktop_icons::lookup;
+    /// use cosmic_freedesktop_icons::lookup;
     ///
     /// let icon = lookup("firefox")
     ///     .with_theme("Papirus")
@@ -168,7 +183,7 @@ impl<'a> LookupBuilder<'a> {
     /// ## Example
     /// ```rust
     /// # fn main() {
-    /// use freedesktop_icons::lookup;
+    /// use cosmic_freedesktop_icons::lookup;
     ///
     /// let icon = lookup("firefox")
     ///     .with_scale(2)
@@ -187,7 +202,7 @@ impl<'a> LookupBuilder<'a> {
     /// ## Example
     /// ```rust
     /// # fn main() {
-    /// use freedesktop_icons::lookup;
+    /// use cosmic_freedesktop_icons::lookup;
     ///
     /// let icon = lookup("firefox")
     ///     .force_svg()
@@ -248,11 +263,17 @@ impl<'a> LookupBuilder<'a> {
                         // Fallback to the parent themes recursively
                         let mut parents = icon_themes
                             .iter()
-                            .flat_map(|t| t.inherits())
+                            .flat_map(|t| {
+                                let file = theme::read_ini_theme(&t.index).unwrap_or_default();
+                                t.inherits(file.as_str())
+                                    .into_iter()
+                                    .map(String::from)
+                                    .collect::<Vec<String>>()
+                            })
                             .collect::<Vec<_>>();
                         parents.dedup();
                         parents.into_iter().find_map(|parent| {
-                            THEMES.get(parent).and_then(|parent| {
+                            THEMES.get(&parent).and_then(|parent| {
                                 parent.iter().find_map(|t| {
                                     t.try_get_icon(self.name, self.size, self.scale, self.force_svg)
                                 })

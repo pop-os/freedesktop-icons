@@ -264,8 +264,9 @@ impl<'a> LookupBuilder<'a> {
                         let mut parents = icon_themes
                             .iter()
                             .flat_map(|t| {
-                                let file = theme::read_ini_theme(&t.index).unwrap_or_default();
-                                t.inherits(file.as_str())
+                                let file = theme::read_ini_theme(&t.index);
+
+                                t.inherits(file.as_ref())
                                     .into_iter()
                                     .map(String::from)
                                     .collect::<Vec<String>>()

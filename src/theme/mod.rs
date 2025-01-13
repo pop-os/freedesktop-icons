@@ -14,8 +14,8 @@ type Result<T> = std::result::Result<T, ThemeError>;
 
 pub static THEMES: Lazy<BTreeMap<String, Vec<Theme>>> = Lazy::new(get_all_themes);
 
-pub fn read_ini_theme(path: &Path) -> Option<String> {
-    std::fs::read_to_string(path).ok()
+pub fn read_ini_theme(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_default()
 }
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ impl Theme {
         scale: u16,
         force_svg: bool,
     ) -> Option<PathBuf> {
-        let file = read_ini_theme(&self.index).unwrap_or_default();
+        let file = read_ini_theme(&self.index);
         self.try_get_icon_exact_size(file.as_str(), name, size, scale, force_svg)
             .or_else(|| self.try_get_icon_closest_size(file.as_str(), name, size, scale, force_svg))
     }
@@ -226,7 +226,7 @@ mod test {
         println!(
             "{:?}",
             themes.iter().find_map(|t| {
-                let file = crate::theme::read_ini_theme(&t.index).unwrap_or_default();
+                let file = crate::theme::read_ini_theme(&t.index);
                 t.try_get_icon_exact_size(file.as_str(), "edit-delete-symbolic", 24, 1, false)
             })
         );
@@ -236,7 +236,7 @@ mod test {
     fn should_get_png_first() {
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
-            let file = crate::theme::read_ini_theme(&t.index).unwrap_or_default();
+            let file = crate::theme::read_ini_theme(&t.index);
             t.try_get_icon_exact_size(file.as_str(), "blueman", 24, 1, true)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(
@@ -248,7 +248,7 @@ mod test {
     fn should_get_svg_first() {
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
-            let file = crate::theme::read_ini_theme(&t.index).unwrap_or_default();
+            let file = crate::theme::read_ini_theme(&t.index);
             t.try_get_icon_exact_size(file.as_str(), "blueman", 24, 1, false)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(

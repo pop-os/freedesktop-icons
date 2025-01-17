@@ -1,9 +1,10 @@
-use crate::theme::error::ThemeError;
-use crate::theme::paths::ThemePath;
-use once_cell::sync::Lazy;
-pub(crate) use paths::BASE_PATHS;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
+use crate::theme::error::ThemeError;
+use crate::theme::paths::ThemePath;
+pub(crate) use paths::BASE_PATHS;
 
 mod directories;
 pub mod error;
@@ -12,7 +13,7 @@ mod paths;
 
 type Result<T> = std::result::Result<T, ThemeError>;
 
-pub static THEMES: Lazy<BTreeMap<String, Vec<Theme>>> = Lazy::new(get_all_themes);
+pub static THEMES: LazyLock<BTreeMap<String, Vec<Theme>>> = LazyLock::new(get_all_themes);
 
 pub fn read_ini_theme(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()

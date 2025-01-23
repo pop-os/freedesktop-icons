@@ -1,13 +1,13 @@
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use dirs::home_dir;
-use once_cell::sync::Lazy;
 use xdg::BaseDirectories;
 
 use crate::theme;
 use crate::theme::error::ThemeError;
 
-pub(crate) static BASE_PATHS: Lazy<Vec<PathBuf>> = Lazy::new(icon_theme_base_paths);
+pub(crate) static BASE_PATHS: LazyLock<Vec<PathBuf>> = LazyLock::new(icon_theme_base_paths);
 
 /// Look in $HOME/.icons (for backwards compatibility), in $XDG_DATA_DIRS/icons, in $XDG_DATA_DIRS/pixmaps and in /usr/share/pixmaps (in that order).
 /// Paths that are not found are filtered out.

@@ -1,9 +1,8 @@
-use once_cell::sync::Lazy;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
-pub(crate) static CACHE: Lazy<Cache> = Lazy::new(Cache::default);
+pub(crate) static CACHE: LazyLock<Cache> = LazyLock::new(Cache::default);
 type IconMap = BTreeMap<(String, u16, u16), CacheEntry>;
 type ThemeMap = BTreeMap<String, IconMap>;
 

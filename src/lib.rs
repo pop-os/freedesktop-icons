@@ -11,7 +11,7 @@
 //! The following snippet get an icon from the default 'hicolor' theme
 //! with the default scale (`1`) and the default size (`24`).
 //!
-//! ```rust
+//! ```rust, no_run
 //! # fn main() {
 //! use cosmic_freedesktop_icons::lookup;
 //!
@@ -23,7 +23,7 @@
 //!
 //! If you have specific requirements for your lookup you can use the provided builder functions:
 //!
-//! ```rust
+//! ```rust, no_run
 //! # fn main() {
 //! use cosmic_freedesktop_icons::lookup;
 //!
@@ -39,7 +39,7 @@
 //! If your application is going to repeat the same icon lookups multiple times
 //! you can use the internal cache to improve performance.
 //!
-//! ```rust
+//! ```rust, no_run
 //! # fn main() {
 //! use cosmic_freedesktop_icons::lookup;
 //!
@@ -64,11 +64,11 @@ mod theme;
 /// Return the list of installed themes on the system
 ///
 /// ## Example
-/// ```rust
+/// ```rust, no_run
 /// # fn main() {
 /// use cosmic_freedesktop_icons::list_themes;
 ///
-/// let themes: Vec<&str> = list_themes();
+/// let themes: Vec<String> = list_themes();
 ///
 /// assert_eq!(themes, vec![
 ///     "Adwaita", "Arc", "Breeze Light", "HighContrast", "Papirus", "Papirus-Dark",
@@ -117,7 +117,7 @@ pub struct LookupBuilder<'a> {
 /// Build an icon lookup for the given icon name.
 ///
 /// ## Example
-/// ```rust
+/// ```rust, no_run
 /// # fn main() {
 /// use cosmic_freedesktop_icons::lookup;
 ///
@@ -131,7 +131,7 @@ impl<'a> LookupBuilder<'a> {
     /// Restrict the lookup to the given icon size.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -147,7 +147,7 @@ impl<'a> LookupBuilder<'a> {
     /// Restrict the lookup to the given scale.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -162,7 +162,7 @@ impl<'a> LookupBuilder<'a> {
 
     /// Add the given theme to the current lookup :
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -181,7 +181,7 @@ impl<'a> LookupBuilder<'a> {
     /// that repeat the same lookups, an application launcher for instance.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -200,7 +200,7 @@ impl<'a> LookupBuilder<'a> {
     /// if you need a modifiable icon, to match a user theme for instance.
     ///
     /// ## Example
-    /// ```rust
+    /// ```rust, no_run
     /// # fn main() {
     /// use cosmic_freedesktop_icons::lookup;
     ///
@@ -330,58 +330,81 @@ impl<'a> LookupBuilder<'a> {
     }
 }
 
-// WARNING: these test are highly dependent on your installed icon-themes.
-// If you want to run them, make sure you have 'Papirus' and 'Arc' icon-themes installed.
 #[cfg(test)]
 mod test {
     use crate::{lookup, CacheEntry, CACHE};
     use speculoos::prelude::*;
-    use std::path::PathBuf;
+    use std::{
+        env,
+        path::{Path, PathBuf},
+        sync::LazyLock,
+    };
+
+    pub(super) static TEST_ASSETS_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+        let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("test_assets");
+        assert!(
+            data_dir.exists(),
+            "The `test_assets` folder should be in the package root"
+        );
+        data_dir
+    });
+
+    /// Override the default search path(s) with a path we control.
+    ///
+    /// This grants us more control over tests rather than relying on the system having the
+    /// themes we need.
+    pub(super) fn set_fake_icons_path() {
+        env::set_var("XDG_DATA_DIRS", TEST_ASSETS_PATH.to_str().unwrap());
+    }
 
     #[test]
     fn simple_lookup() {
-        let firefox = lookup("firefox").find();
+        set_fake_icons_path();
+        let browser = lookup("browser").find();
 
+        let icon_path = TEST_ASSETS_PATH.join("icons/hicolor/scalable/apps/browser.svg");
         asserting!("Lookup with no parameters should return an existing icon")
-            .that(&firefox)
+            .that(&browser)
             .is_some()
-            .is_equal_to(PathBuf::from(
-                "/usr/share/icons/hicolor/22x22/apps/firefox.png",
-            ));
+            .is_equal_to(icon_path);
     }
 
     #[test]
     fn theme_lookup() {
-        let firefox = lookup("firefox").with_theme("Papirus").find();
+        set_fake_icons_path();
+        let cosmic_fake = lookup("cosmic-fake").with_theme("cosmic-base").find();
 
+        let icon_path = TEST_ASSETS_PATH.join("icons/cosmic-base/16x16/apps/cosmic-fake.svg");
         asserting!("Lookup with no parameters should return an existing icon")
-            .that(&firefox)
+            .that(&cosmic_fake)
             .is_some()
-            .is_equal_to(PathBuf::from(
-                "/usr/share/icons/Papirus/24x24/apps/firefox.svg",
-            ));
+            .is_equal_to(icon_path);
     }
 
     #[test]
     fn should_fallback_to_parent_theme() {
+        set_fake_icons_path();
         let icon = lookup("video-single-display-symbolic")
-            .with_theme("Arc")
+            .with_theme("cosmic-base-dark")
             .find();
 
-        asserting!("Lookup for an icon in the Arc theme should find the icon in its parent")
-            .that(&icon)
-            .is_some()
-            .is_equal_to(PathBuf::from(
-                "/usr/share/icons/Adwaita/scalable/devices/video-single-display-symbolic.svg",
-            ));
+        let icon_path = TEST_ASSETS_PATH
+            .join("icons/cosmic-base/scalable/devices/video-single-display-symbolic.svg");
+        asserting!(
+            "Lookup for an icon in the cosmic-dark theme should find the icon in its parent"
+        )
+        .that(&icon)
+        .is_some()
+        .is_equal_to(icon_path);
     }
 
     #[test]
-    fn should_fallback_to_pixmaps_utlimately() {
+    fn should_fallback_to_pixmaps_ultimately() {
+        set_fake_icons_path();
         let archlinux_logo = lookup("archlinux-logo")
             .with_size(16)
             .with_scale(1)
-            .with_theme("Papirus")
+            .with_theme("COSMIC")
             .find();
 
         asserting!("When lookup fail in theme, icon should be found in '/usr/share/pixmaps'")
@@ -392,22 +415,24 @@ mod test {
 
     #[test]
     fn compare_to_linincon_with_theme() {
-        let lin_wireshark = linicon::lookup_icon("wireshark")
+        set_fake_icons_path();
+        let lin_cosmic_fake = linicon::lookup_icon("cosmic-fake")
+            .from_theme("cosmic-base")
             .next()
             .unwrap()
             .unwrap()
             .path;
 
-        let wireshark = lookup("wireshark")
+        let cosmic_fake = lookup("cosmic-fake")
             .with_size(16)
             .with_scale(1)
-            .with_theme("Papirus")
+            .with_theme("cosmic-base")
             .find();
 
         asserting!("Given the same input parameter, lookup should output be the same as linincon")
-            .that(&wireshark)
+            .that(&cosmic_fake)
             .is_some()
-            .is_equal_to(lin_wireshark);
+            .is_equal_to(lin_cosmic_fake);
     }
 
     #[test]

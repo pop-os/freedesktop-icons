@@ -1,0 +1,30 @@
+[Icon Theme]
+Name=COSMIC
+Comment=Fake theme for tests (base)
+Inherits=hicolor
+
+Directories=16x16/apps,22x22/apps,scalable/devices,symbolic/actions
+
+[16x16/apps]
+Context=Applications
+Size=16
+Type=Fixed
+
+[22x22/apps]
+Context=Applications
+Size=22
+Type=Fixed
+
+[scalable/devices]
+Context=Devices
+Size=16
+MinSize=16
+MaxSize=256
+Type=Scalable
+
+[symbolic/actions]
+Context=Actions
+Size=16
+MinSize=16
+MaxSize=512
+Type=Scalable

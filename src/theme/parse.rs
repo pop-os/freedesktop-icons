@@ -121,24 +121,18 @@ impl Theme {
 
 #[cfg(test)]
 mod test {
-    use crate::THEMES;
+    use crate::{test::set_fake_icons_path, THEMES};
     use speculoos::prelude::*;
 
     #[test]
     fn should_get_theme_parents() {
-        for theme in THEMES.get("Arc").unwrap() {
+        set_fake_icons_path();
+        for theme in THEMES.get("cosmic-base-dark").unwrap() {
             let file = crate::theme::read_ini_theme(&theme.index);
             let parents = theme.inherits(&file);
 
             assert_that!(parents).does_not_contain("hicolor");
-
-            assert_that!(parents).is_equal_to(vec![
-                "Moka",
-                "Faba",
-                "elementary",
-                "Adwaita",
-                "gnome",
-            ]);
+            assert_that!(parents).is_equal_to(vec!["cosmic-base", "pop-os-base"]);
         }
     }
 }

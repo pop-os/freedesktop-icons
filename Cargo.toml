@@ -1,11 +1,11 @@
 [package]
-name = "freedesktop-icons"
+name = "cosmic-freedesktop-icons"
 version = "0.3.0"
 edition = "2021"
 
 license = "MIT"
 description = "A Freedesktop Icons lookup crate"
-repository = "https://github.com/oknozor/freedestkop-icons"
+repository = "https://github.com/pop-os/freedesktop-icons"
 readme = "README.md"
 keywords = ["icons", "gui", "freedesktop"]
 

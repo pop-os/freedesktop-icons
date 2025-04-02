@@ -57,6 +57,7 @@ use crate::cache::{CacheEntry, CACHE};
 use crate::theme::{try_build_icon_path, THEMES};
 use std::io::BufRead;
 use std::path::PathBuf;
+use std::time::Instant;
 
 mod cache;
 mod theme;
@@ -189,6 +190,7 @@ impl<'a> LookupBuilder<'a> {
     ///     .with_size(48)
     ///     .find();
     /// # }
+    #[inline]
     pub fn with_size(mut self, size: u16) -> Self {
         self.size = size;
         self
@@ -205,6 +207,7 @@ impl<'a> LookupBuilder<'a> {
     ///     .with_scale(2)
     ///     .find();
     /// # }
+    #[inline]
     pub fn with_scale(mut self, scale: u16) -> Self {
         self.scale = scale;
         self
@@ -220,6 +223,7 @@ impl<'a> LookupBuilder<'a> {
     ///     .with_theme("Papirus")
     ///     .find();
     /// # }
+    #[inline]
     pub fn with_theme<'b: 'a>(mut self, theme: &'b str) -> Self {
         self.theme = theme;
         self
@@ -240,6 +244,7 @@ impl<'a> LookupBuilder<'a> {
     ///     .with_cache()
     ///     .find();
     /// # }
+    #[inline]
     pub fn with_cache(mut self) -> Self {
         self.cache = true;
         self
@@ -258,6 +263,7 @@ impl<'a> LookupBuilder<'a> {
     ///     .force_svg()
     ///     .find();
     /// # }
+    #[inline]
     pub fn force_svg(mut self) -> Self {
         self.force_svg = true;
         self
@@ -266,7 +272,12 @@ impl<'a> LookupBuilder<'a> {
     /// Execute the current lookup
     /// if no icon is found in the current theme fallback to
     /// `/usr/share/icons/hicolor` theme and then to `/usr/share/pixmaps`.
+    #[inline]
     pub fn find(self) -> Option<PathBuf> {
+        if self.name.is_empty() {
+            return None;
+        }
+
         // Lookup for an icon in the given theme and fallback to 'hicolor' default theme
         self.lookup_in_theme()
     }
@@ -290,8 +301,12 @@ impl<'a> LookupBuilder<'a> {
         if self.cache {
             match self.cache_lookup(self.theme) {
                 CacheEntry::Found(icon) => return Some(icon),
-                CacheEntry::NotFound => return None,
-                _ => ()
+                CacheEntry::NotFound(last_check)
+                    if last_check.duration_since(Instant::now()).as_secs() < 5 =>
+                {
+                    return None
+                }
+                _ => (),
             }
         }
 
@@ -362,6 +377,16 @@ impl<'a> LookupBuilder<'a> {
                     icon
                 }
             })
+    }
+
+    #[inline]
+    pub fn cache_clear(&mut self) {
+        CACHE.clear();
+    }
+
+    #[inline]
+    pub fn cache_reset_none(&mut self) {
+        CACHE.reset_none();
     }
 
     #[inline]

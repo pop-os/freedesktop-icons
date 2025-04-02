@@ -1,9 +1,9 @@
 use crate::theme::error::ThemeError;
 use crate::theme::paths::ThemePath;
-use once_cell::sync::Lazy;
 pub(crate) use paths::BASE_PATHS;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 mod directories;
 pub mod error;
@@ -12,8 +12,9 @@ mod paths;
 
 type Result<T> = std::result::Result<T, ThemeError>;
 
-pub static THEMES: Lazy<BTreeMap<String, Vec<Theme>>> = Lazy::new(get_all_themes);
+pub static THEMES: LazyLock<BTreeMap<String, Vec<Theme>>> = LazyLock::new(get_all_themes);
 
+#[inline]
 pub fn read_ini_theme(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
 }
@@ -25,6 +26,7 @@ pub struct Theme {
 }
 
 impl Theme {
+    #[inline]
     pub fn try_get_icon(
         &self,
         name: &str,
@@ -32,11 +34,13 @@ impl Theme {
         scale: u16,
         force_svg: bool,
     ) -> Option<PathBuf> {
+        eprintln!("try_get_icon: {name}");
         let file = read_ini_theme(&self.index);
         self.try_get_icon_exact_size(file.as_str(), name, size, scale, force_svg)
             .or_else(|| self.try_get_icon_closest_size(file.as_str(), name, size, scale, force_svg))
     }
 
+    #[inline]
     fn try_get_icon_exact_size(
         &self,
         file: &str,
@@ -49,6 +53,7 @@ impl Theme {
             .find_map(|path| try_build_icon_path(name, path, force_svg))
     }
 
+    #[inline]
     fn match_size<'a>(
         &'a self,
         file: &'a str,
@@ -62,6 +67,7 @@ impl Theme {
             .map(|dir| self.path().join(dir))
     }
 
+    #[inline]
     fn try_get_icon_closest_size(
         &self,
         file: &str,

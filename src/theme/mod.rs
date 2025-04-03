@@ -1,5 +1,6 @@
 use crate::theme::error::ThemeError;
 use crate::theme::paths::ThemePath;
+use memmap2::Mmap;
 pub(crate) use paths::BASE_PATHS;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,8 +16,8 @@ type Result<T> = std::result::Result<T, ThemeError>;
 pub static THEMES: LazyLock<BTreeMap<String, Vec<Theme>>> = LazyLock::new(get_all_themes);
 
 #[inline]
-pub fn read_ini_theme(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
+pub fn read_ini_theme(path: &Path) -> std::io::Result<Mmap> {
+    std::fs::File::open(path).and_then(|file| unsafe { Mmap::map(&file) })
 }
 
 #[derive(Debug)]
@@ -34,10 +35,10 @@ impl Theme {
         scale: u16,
         force_svg: bool,
     ) -> Option<PathBuf> {
-        eprintln!("try_get_icon: {name}");
-        let file = read_ini_theme(&self.index);
-        self.try_get_icon_exact_size(file.as_str(), name, size, scale, force_svg)
-            .or_else(|| self.try_get_icon_closest_size(file.as_str(), name, size, scale, force_svg))
+        let file = read_ini_theme(&self.index).ok()?;
+        let file = std::str::from_utf8(file.as_ref()).ok()?;
+        self.try_get_icon_exact_size(file, name, size, scale, force_svg)
+            .or_else(|| self.try_get_icon_closest_size(file, name, size, scale, force_svg))
     }
 
     #[inline]
@@ -234,8 +235,9 @@ mod test {
         println!(
             "{:?}",
             themes.iter().find_map(|t| {
-                let file = crate::theme::read_ini_theme(&t.index);
-                t.try_get_icon_exact_size(file.as_str(), "edit-delete-symbolic", 24, 1, false)
+                let file = super::read_ini_theme(&t.index).ok()?;
+                let file = std::str::from_utf8(file.as_ref()).ok()?;
+                t.try_get_icon_exact_size(file, "edit-delete-symbolic", 24, 1, false)
             })
         );
     }
@@ -244,8 +246,9 @@ mod test {
     fn should_get_png_first() {
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
-            let file = crate::theme::read_ini_theme(&t.index);
-            t.try_get_icon_exact_size(file.as_str(), "blueman", 24, 1, true)
+            let file = super::read_ini_theme(&t.index).ok()?;
+            let file = std::str::from_utf8(file.as_ref()).ok()?;
+            t.try_get_icon_exact_size(file, "blueman", 24, 1, true)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(
             "/usr/share/icons/hicolor/22x22/apps/blueman.png",
@@ -256,8 +259,9 @@ mod test {
     fn should_get_svg_first() {
         let themes = THEMES.get("hicolor").unwrap();
         let icon = themes.iter().find_map(|t| {
-            let file = crate::theme::read_ini_theme(&t.index);
-            t.try_get_icon_exact_size(file.as_str(), "blueman", 24, 1, false)
+            let file = super::read_ini_theme(&t.index).ok()?;
+            let file = std::str::from_utf8(file.as_ref()).ok()?;
+            t.try_get_icon_exact_size(file, "blueman", 24, 1, false)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(
             "/usr/share/icons/hicolor/22x22/apps/blueman.png",

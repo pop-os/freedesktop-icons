@@ -15,6 +15,7 @@ thiserror = "2.0"
 xdg = "2.5"
 tracing = "0.1.0"
 ini_core = "0.2.0"
+memmap2 = "0.9"
 
 [dev-dependencies]
 speculoos = "0.11.0"

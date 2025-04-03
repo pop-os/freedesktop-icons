@@ -325,9 +325,15 @@ impl<'a> LookupBuilder<'a> {
                         let mut parents = icon_themes
                             .iter()
                             .flat_map(|t| {
-                                let file = theme::read_ini_theme(&t.index);
+                                let Ok(file) = theme::read_ini_theme(&t.index) else {
+                                    return Vec::new();
+                                };
 
-                                t.inherits(file.as_ref())
+                                let Ok(file) = std::str::from_utf8(file.as_ref()) else {
+                                    return Vec::new();
+                                };
+
+                                t.inherits(file)
                                     .into_iter()
                                     .map(String::from)
                                     .collect::<Vec<String>>()

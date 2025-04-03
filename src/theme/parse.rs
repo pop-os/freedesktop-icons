@@ -127,8 +127,9 @@ mod test {
     #[test]
     fn should_get_theme_parents() {
         for theme in THEMES.get("Arc").unwrap() {
-            let file = crate::theme::read_ini_theme(&theme.index);
-            let parents = theme.inherits(&file);
+            let file = crate::theme::read_ini_theme(&theme.index).ok().unwrap();
+            let file = std::str::from_utf8(file.as_ref()).ok().unwrap();
+            let parents = theme.inherits(file);
 
             assert_that!(parents).does_not_contain("hicolor");
 

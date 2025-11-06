@@ -1,6 +1,6 @@
 use criterion::{
-    black_box, criterion_group, criterion_main, AxisScale, BenchmarkId, Criterion,
-    PlotConfiguration,
+    AxisScale, BenchmarkId, Criterion, PlotConfiguration, black_box, criterion_group,
+    criterion_main,
 };
 use freedesktop_icons::lookup;
 use gtk4::{IconLookupFlags, IconTheme, TextDirection};

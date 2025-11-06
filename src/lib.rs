@@ -53,8 +53,8 @@
 //! ```
 use theme::BASE_PATHS;
 
-use crate::cache::{CacheEntry, CACHE};
-use crate::theme::{try_build_icon_path, THEMES};
+use crate::cache::{CACHE, CacheEntry};
+use crate::theme::{THEMES, try_build_icon_path};
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -109,7 +109,7 @@ pub fn list_themes() -> Vec<String> {
 ///
 /// ## Example
 /// ```rust, no_run
-/// use freedesktop_icons::default_theme_gtk;
+/// use cosmic_freedesktop_icons::default_theme_gtk;
 ///
 /// let theme = default_theme_gtk();
 ///
@@ -174,7 +174,7 @@ pub struct LookupBuilder<'a> {
 ///
 /// let icon = lookup("firefox").find();
 /// # }
-pub fn lookup(name: &str) -> LookupBuilder {
+pub fn lookup(name: &str) -> LookupBuilder<'_> {
     LookupBuilder::new(name)
 }
 
@@ -304,7 +304,7 @@ impl<'a> LookupBuilder<'a> {
                 CacheEntry::NotFound(last_check)
                     if last_check.duration_since(Instant::now()).as_secs() < 5 =>
                 {
-                    return None
+                    return None;
                 }
                 _ => (),
             }
@@ -412,7 +412,7 @@ impl<'a> LookupBuilder<'a> {
 #[cfg(test)]
 #[cfg(feature = "local_tests")]
 mod test {
-    use crate::{lookup, CacheEntry, CACHE};
+    use crate::{CACHE, CacheEntry, lookup};
     use speculoos::prelude::*;
     use std::path::PathBuf;
 

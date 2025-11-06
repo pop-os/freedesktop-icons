@@ -130,32 +130,20 @@ fn try_build_svg<P: AsRef<Path>>(name: &str, path: P) -> Option<PathBuf> {
     let path = path.as_ref();
     let svg = path.join(format!("{name}.svg"));
 
-    if svg.exists() {
-        Some(svg)
-    } else {
-        None
-    }
+    if svg.exists() { Some(svg) } else { None }
 }
 
 fn try_build_png<P: AsRef<Path>>(name: &str, path: P) -> Option<PathBuf> {
     let path = path.as_ref();
     let png = path.join(format!("{name}.png"));
 
-    if png.exists() {
-        Some(png)
-    } else {
-        None
-    }
+    if png.exists() { Some(png) } else { None }
 }
 
 fn try_build_xmp<P: AsRef<Path>>(name: &str, path: P) -> Option<PathBuf> {
     let path = path.as_ref();
     let xmp = path.join(format!("{name}.xmp"));
-    if xmp.exists() {
-        Some(xmp)
-    } else {
-        None
-    }
+    if xmp.exists() { Some(xmp) } else { None }
 }
 
 // Iter through the base paths and get all theme directories

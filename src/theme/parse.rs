@@ -125,6 +125,7 @@ mod test {
     use speculoos::prelude::*;
 
     #[test]
+    #[cfg(feature = "local_tests")]
     fn should_get_theme_parents() {
         for theme in THEMES.get("Arc").unwrap() {
             let file = crate::theme::read_ini_theme(&theme.index).ok().unwrap();

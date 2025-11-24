@@ -516,6 +516,19 @@ mod test {
     }
 
     #[test]
+    fn flatpak_slack() {
+        let home = std::env::home_dir().unwrap();
+
+        assert_eq!(
+            lookup("com.slack.Slack").find(),
+            Some(home.join(
+                ".local/share/flatpak/exports/share/icons/hicolor/scalable/apps/com.slack.Slack.svg"
+            )),
+            "Is the Slack flatpak installed locally?"
+        );
+    }
+
+    #[test]
     #[cfg(feature = "local_tests")]
     fn theme_lookup() {
         let firefox = lookup("firefox").with_theme("Papirus").find();

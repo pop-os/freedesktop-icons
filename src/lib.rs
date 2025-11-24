@@ -54,7 +54,9 @@
 use theme::BASE_PATHS;
 
 use crate::cache::{CACHE, CacheEntry};
-use crate::theme::{THEMES, try_build_icon_path};
+use crate::theme::{THEMES, Theme, try_build_icon_path};
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -310,6 +312,11 @@ impl<'a> LookupBuilder<'a> {
             }
         }
 
+        // Records theme paths that have already been searched.
+        let searched_themes = &mut HashSet::new();
+        // Record themes whose inherits have been searched.
+        let search_inherits = &mut HashSet::new();
+
         // Then lookup in the given theme
         THEMES
             .get(self.theme)
@@ -317,44 +324,16 @@ impl<'a> LookupBuilder<'a> {
             .and_then(|icon_themes| {
                 let icon = icon_themes
                     .iter()
-                    .find_map(|theme| {
-                        theme.try_get_icon(self.name, self.size, self.scale, self.force_svg)
-                    })
+                    // Search the active icon themes
+                    .find_map(|theme| self.search_theme(searched_themes, theme))
+                    // Search the inherits of those icon themes.
                     .or_else(|| {
-                        // Fallback to the parent themes recursively
-                        let mut parents = icon_themes
-                            .iter()
-                            .flat_map(|t| {
-                                let Ok(file) = theme::read_ini_theme(&t.index) else {
-                                    return Vec::new();
-                                };
-
-                                let Ok(file) = std::str::from_utf8(file.as_ref()) else {
-                                    return Vec::new();
-                                };
-
-                                t.inherits(file)
-                                    .into_iter()
-                                    .map(String::from)
-                                    .collect::<Vec<String>>()
-                            })
-                            .collect::<Vec<_>>();
-                        parents.dedup();
-                        parents.into_iter().find_map(|parent| {
-                            THEMES.get(&parent).and_then(|parent| {
-                                parent.iter().find_map(|t| {
-                                    t.try_get_icon(self.name, self.size, self.scale, self.force_svg)
-                                })
-                            })
+                        icon_themes.iter().find_map(|t| {
+                            self.search_theme_inherits(search_inherits, searched_themes, t)
                         })
                     })
-                    .or_else(|| {
-                        THEMES.get("hicolor").and_then(|icon_themes| {
-                            icon_themes.iter().find_map(|theme| {
-                                theme.try_get_icon(self.name, self.size, self.scale, self.force_svg)
-                            })
-                        })
-                    })
+                    // Search the hicolor icon theme if it was not previously searched
+                    .or_else(|| self.search_inherited_theme(searched_themes, "hicolor"))
                     .or_else(|| {
                         for theme_base_dir in BASE_PATHS.iter() {
                             if let Some(icon) =
@@ -364,9 +343,6 @@ impl<'a> LookupBuilder<'a> {
                             }
                         }
                         None
-                    })
-                    .or_else(|| {
-                        try_build_icon_path(self.name, "/usr/share/pixmaps", self.force_svg)
                     })
                     .or_else(|| {
                         let p = PathBuf::from(&self.name);
@@ -405,30 +381,142 @@ impl<'a> LookupBuilder<'a> {
         CACHE.insert(theme, self.size, self.scale, self.name, &icon);
         icon
     }
+
+    /// Search a theme by its path for a matching icon if not already searched.
+    fn search_theme(&self, searched_themes: &mut HashSet<u64>, theme: &Theme) -> Option<PathBuf> {
+        // Store hash of the theme.
+        let theme_hash = {
+            let mut hasher = std::hash::DefaultHasher::new();
+            theme.path.0.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        if searched_themes.insert(theme_hash) {
+            return theme.try_get_icon(self.name, self.size, self.scale, self.force_svg);
+        }
+
+        None
+    }
+
+    // Search the inherits of a theme if not already searched.
+    fn search_theme_inherits(
+        &self,
+        search_inherits: &mut HashSet<u64>,
+        searched_themes: &mut HashSet<u64>,
+        theme: &Theme,
+    ) -> Option<PathBuf> {
+        // Store hash of the theme.
+        let theme_hash = {
+            let mut hasher = std::hash::DefaultHasher::new();
+            theme.path.0.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        if search_inherits.insert(theme_hash) {
+            let Ok(file) = theme::read_ini_theme(&theme.index) else {
+                return None;
+            };
+
+            let Ok(file) = std::str::from_utf8(file.as_ref()) else {
+                return None;
+            };
+
+            // Search all inherited themes that we haven't already searched
+            return theme
+                .inherits(file)
+                .into_iter()
+                .find_map(|parent| self.search_inherited_theme(searched_themes, parent));
+        }
+
+        None
+    }
+
+    /// Search the inherits of a theme by its name if not already searched.
+    fn search_inherited_theme(
+        &self,
+        searched_themes: &mut HashSet<u64>,
+        theme: &str,
+    ) -> Option<PathBuf> {
+        THEMES
+            .get(theme)?
+            .iter()
+            .find_map(|t| self.search_theme(searched_themes, t))
+    }
 }
 
 // WARNING: these test are highly dependent on your installed icon-themes.
 // If you want to run them, make sure you have 'Papirus' and 'Arc' icon-themes installed.
 #[cfg(test)]
-#[cfg(feature = "local_tests")]
 mod test {
     use crate::{CACHE, CacheEntry, lookup};
     use speculoos::prelude::*;
     use std::path::PathBuf;
 
     #[test]
-    fn simple_lookup() {
+    fn hicolor_firefox_24_png() {
         let firefox = lookup("firefox").find();
+
+        asserting!("Firefox contains only a 16x16 and 32x32 icon, so 16x16 should be returned")
+            .that(&firefox)
+            .is_some()
+            .is_equal_to(PathBuf::from(
+                "/usr/share/icons/hicolor/16x16/apps/firefox.png",
+            ));
+    }
+
+    #[test]
+    fn hicolor_firefox_48_png() {
+        let firefox = lookup("firefox").with_size(48).find();
+
+        asserting!("Firefox has a 48x48 icon, so that should be returned")
+            .that(&firefox)
+            .is_some()
+            .is_equal_to(PathBuf::from(
+                "/usr/share/icons/hicolor/48x48/apps/firefox.png",
+            ));
+    }
+
+    #[test]
+    fn hicolor_firefox_svg_fallback_to_png() {
+        let firefox = lookup("firefox").force_svg().find();
 
         asserting!("Lookup with no parameters should return an existing icon")
             .that(&firefox)
             .is_some()
             .is_equal_to(PathBuf::from(
-                "/usr/share/icons/hicolor/22x22/apps/firefox.png",
+                "/usr/share/icons/hicolor/16x16/apps/firefox.png",
             ));
     }
 
     #[test]
+    fn cosmic_weather_storm_symbolic() {
+        let firefox = lookup("weather-storm-symbolic").with_theme("Cosmic").find();
+
+        asserting!("Is the cosmic icon theme installed?")
+            .that(&firefox)
+            .is_some()
+            .is_equal_to(PathBuf::from(
+                "/usr/share/icons/Cosmic/scalable/status/weather-storm-symbolic.svg",
+            ));
+    }
+
+    #[test]
+    fn cosmic_weather_storm_symbolic_force_svg() {
+        let firefox = lookup("weather-storm-symbolic")
+            .with_theme("Cosmic")
+            .force_svg()
+            .find();
+
+        asserting!("Is the cosmic icon theme installed?")
+            .that(&firefox)
+            .is_some()
+            .is_equal_to(PathBuf::from(
+                "/usr/share/icons/Cosmic/scalable/status/weather-storm-symbolic.svg",
+            ));
+    }
+
+    #[test]
+    #[cfg(feature = "local_tests")]
     fn theme_lookup() {
         let firefox = lookup("firefox").with_theme("Papirus").find();
 
@@ -441,6 +529,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "local_tests")]
     fn should_fallback_to_parent_theme() {
         let icon = lookup("video-single-display-symbolic")
             .with_theme("Arc")
@@ -455,6 +544,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "local_tests")]
     fn should_fallback_to_pixmaps_utlimately() {
         let archlinux_logo = lookup("archlinux-logo")
             .with_size(16)
@@ -469,6 +559,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "local_tests")]
     fn compare_to_linincon_with_theme() {
         let lin_wireshark = linicon::lookup_icon("wireshark")
             .next()
@@ -496,8 +587,9 @@ mod test {
 
         let expected_cache_result = CACHE.get("hicolor", 24, 1, "not-found");
 
-        asserting!("When lookup fails a first time, subsequent attempts should fail from cache")
-            .that(&expected_cache_result)
-            .is_equal_to(CacheEntry::NotFound);
+        assert!(
+            matches!(expected_cache_result, CacheEntry::NotFound(..)),
+            "When lookup fails a first time, subsequent attempts should fail from cache"
+        );
     }
 }

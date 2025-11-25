@@ -1,17 +1,14 @@
-use crate::theme::error::ThemeError;
 use crate::theme::paths::ThemePath;
 use memmap2::Mmap;
 pub(crate) use paths::BASE_PATHS;
 use std::collections::BTreeMap;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 mod directories;
-pub mod error;
 mod parse;
 mod paths;
-
-type Result<T> = std::result::Result<T, ThemeError>;
 
 pub static THEMES: LazyLock<BTreeMap<String, Vec<Theme>>> = LazyLock::new(get_all_themes);
 
@@ -50,8 +47,7 @@ impl Theme {
         scale: u16,
         force_svg: bool,
     ) -> Option<PathBuf> {
-        self.match_size(file, size, scale)
-            .find_map(|path| try_build_icon_path(name, path, force_svg))
+        self.try_fold_icon_path(self.match_size(file, size, scale), name, force_svg)
     }
 
     #[inline]
@@ -60,12 +56,10 @@ impl Theme {
         file: &'a str,
         size: u16,
         scale: u16,
-    ) -> impl Iterator<Item = PathBuf> + 'a {
-        let dirs = self.get_all_directories(file);
-
-        dirs.filter(move |directory| directory.match_size(size, scale))
+    ) -> impl Iterator<Item = &'a str> + 'a {
+        self.get_all_directories(file)
+            .filter(move |directory| directory.match_size(size, scale))
             .map(|dir| dir.name)
-            .map(|dir| self.path().join(dir))
     }
 
     #[inline]
@@ -77,32 +71,59 @@ impl Theme {
         scale: u16,
         force_svg: bool,
     ) -> Option<PathBuf> {
-        self.closest_match_size(file, size, scale)
-            .iter()
-            .find_map(|path| try_build_icon_path(name, path, force_svg))
+        self.try_fold_icon_path(self.closest_match_size(file, size, scale), name, force_svg)
     }
 
-    fn closest_match_size(&self, file: &str, size: u16, scale: u16) -> Vec<PathBuf> {
-        let dirs = self.get_all_directories(file);
-
-        let mut dirs: Vec<_> = dirs
-            .filter_map(|directory| {
-                let distance = directory.directory_size_distance(size, scale);
-                if distance < i16::MAX {
-                    Some((directory, distance.abs()))
+    fn try_fold_icon_path<'a>(
+        &self,
+        mut dir_names: impl Iterator<Item = &'a str>,
+        name: &str,
+        force_svg: bool,
+    ) -> Option<PathBuf> {
+        dir_names
+            .try_fold(self.path().clone(), move |mut path, dir_name| {
+                path.push(dir_name);
+                if try_build_icon_path(&mut path, name, force_svg) {
+                    ControlFlow::Break(path)
                 } else {
-                    None
+                    let components = dir_name
+                        .as_bytes()
+                        .iter()
+                        .fold(2, |n, c| n + (*c == b'/') as u32)
+                        as usize;
+
+                    for _ in 0..components {
+                        path.pop();
+                    }
+
+                    ControlFlow::Continue(path)
                 }
             })
-            .collect();
+            .break_value()
+    }
 
-        dirs.sort_by(|(_, a), (_, b)| a.cmp(b));
+    fn closest_match_size<'a>(
+        &'a self,
+        file: &'a str,
+        size: u16,
+        scale: u16,
+    ) -> impl Iterator<Item = &'a str> + 'a {
+        let dirs = self.get_all_directories(file);
 
-        dirs.iter()
-            .map(|(dir, _)| dir)
-            .map(|dir| dir.name)
-            .map(|dir| self.path().join(dir))
-            .collect()
+        dirs.fold(Vec::<(&'a str, i16)>::new(), |mut sorted, directory| {
+            let distance = directory.directory_size_distance(size, scale);
+            if distance < i16::MAX {
+                let a = distance.abs();
+                let pos = sorted
+                    .binary_search_by(|(_, b)| b.cmp(&a))
+                    .unwrap_or_else(|pos| pos);
+                sorted.insert(pos, (directory.name, a));
+            }
+
+            sorted
+        })
+        .into_iter()
+        .map(|(name, _)| name)
     }
 
     fn path(&self) -> &PathBuf {
@@ -110,40 +131,27 @@ impl Theme {
     }
 }
 
-pub(super) fn try_build_icon_path<P: AsRef<Path>>(
-    name: &str,
-    path: P,
-    force_svg: bool,
-) -> Option<PathBuf> {
+pub(super) fn try_build_icon_path<'a>(path: &'a mut PathBuf, name: &str, force_svg: bool) -> bool {
+    let mut name_buf = String::with_capacity(name.len() + 4);
+    name_buf.push_str(name);
+    path.push(name);
     if force_svg {
-        try_build_svg(name, path.as_ref())
-            .or_else(|| try_build_png(name, path.as_ref()))
-            .or_else(|| try_build_xmp(name, path.as_ref()))
+        try_build_ext(path, &mut name_buf, name, ".svg")
+            || try_build_ext(path, &mut name_buf, name, ".png")
+            || try_build_ext(path, &mut name_buf, name, ".xmp")
     } else {
-        try_build_png(name, path.as_ref())
-            .or_else(|| try_build_svg(name, path.as_ref()))
-            .or_else(|| try_build_xmp(name, path.as_ref()))
+        try_build_ext(path, &mut name_buf, name, ".png")
+            || try_build_ext(path, &mut name_buf, name, ".svg")
+            || try_build_ext(path, &mut name_buf, name, ".xmp")
     }
 }
 
-fn try_build_svg<P: AsRef<Path>>(name: &str, path: P) -> Option<PathBuf> {
-    let path = path.as_ref();
-    let svg = path.join(format!("{name}.svg"));
-
-    if svg.exists() { Some(svg) } else { None }
-}
-
-fn try_build_png<P: AsRef<Path>>(name: &str, path: P) -> Option<PathBuf> {
-    let path = path.as_ref();
-    let png = path.join(format!("{name}.png"));
-
-    if png.exists() { Some(png) } else { None }
-}
-
-fn try_build_xmp<P: AsRef<Path>>(name: &str, path: P) -> Option<PathBuf> {
-    let path = path.as_ref();
-    let xmp = path.join(format!("{name}.xmp"));
-    if xmp.exists() { Some(xmp) } else { None }
+#[inline]
+fn try_build_ext(path: &mut PathBuf, name_buf: &mut String, name: &str, ext: &'static str) -> bool {
+    name_buf.truncate(name.len());
+    name_buf.push_str(ext);
+    path.set_file_name(&name_buf);
+    path.exists()
 }
 
 // Iter through the base paths and get all theme directories
@@ -180,8 +188,9 @@ pub(super) fn get_all_themes() -> BTreeMap<String, Vec<Theme>> {
         let name = entry.file_name();
         let fallback_index = found_indices.get(&name);
         if let Some(theme) = Theme::from_path(entry.path(), fallback_index) {
-            let name = name.to_string_lossy().to_string();
-            icon_themes.entry(name).or_default().push(theme);
+            if let Some(name) = name.to_str() {
+                icon_themes.entry(name.to_owned()).or_default().push(theme);
+            }
         }
     }
 
@@ -190,24 +199,26 @@ pub(super) fn get_all_themes() -> BTreeMap<String, Vec<Theme>> {
 
 impl Theme {
     pub(crate) fn from_path<P: AsRef<Path>>(path: P, index: Option<&PathBuf>) -> Option<Self> {
-        let path = path.as_ref();
+        let mut path = path.as_ref().to_path_buf();
+        let is_dir = path.is_dir();
+        path.push("index.theme");
+        let local_index_exists = path.exists();
+        let has_index = local_index_exists || index.is_some();
 
-        let has_index = path.join("index.theme").exists() || index.is_some();
-
-        if !has_index || !path.is_dir() {
+        if !has_index || !is_dir {
             return None;
         }
 
-        let path = ThemePath(path.into());
-
-        match (index, path.index()) {
-            (Some(index), _) => Some(Theme {
-                path,
-                index: index.clone(),
-            }),
-            (None, Ok(index)) => Some(Theme { path, index }),
-            _ => None,
-        }
+        index
+            .cloned()
+            .or_else(|| local_index_exists.then_some(path.clone()))
+            .map(|index| Theme {
+                path: ThemePath({
+                    path.pop();
+                    path
+                }),
+                index,
+            })
     }
 }
 

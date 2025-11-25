@@ -105,27 +105,26 @@ impl Theme {
         })
     }
 
-    pub fn inherits<'a>(&self, file: &'a str) -> Vec<&'a str> {
+    pub fn inherits<'a>(&self, file: &'a str) -> impl Iterator<Item = &'a str> {
         icon_theme_section(file)
             .find(|&(key, _)| key == "Inherits")
-            .map(|(_, parents)| {
+            .into_iter()
+            .flat_map(|(_, parents)| {
                 parents
                     .split(',')
                     // Filtering out 'hicolor' since we are going to fallback there anyway
                     .filter(|parent| parent != &"hicolor")
-                    .collect()
             })
-            .unwrap_or_default()
     }
 }
 
 #[cfg(test)]
+#[cfg(feature = "local_tests")]
 mod test {
     use crate::THEMES;
     use speculoos::prelude::*;
 
     #[test]
-    #[cfg(feature = "local_tests")]
     fn should_get_theme_parents() {
         for theme in THEMES.get("Arc").unwrap() {
             let file = crate::theme::read_ini_theme(&theme.index).ok().unwrap();

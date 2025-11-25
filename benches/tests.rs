@@ -1,4 +1,4 @@
-use freedesktop_icons::lookup;
+use cosmic_freedesktop_icons::lookup;
 use gtk4::{IconLookupFlags, IconTheme, TextDirection};
 use speculoos::prelude::*;
 use std::path::PathBuf;

@@ -51,11 +51,11 @@
 //!     .find();
 //! # }
 //! ```
+use memmap2::Mmap;
 use theme::BASE_PATHS;
 
 use crate::cache::{CACHE, CacheEntry};
 use crate::theme::{THEMES, Theme, try_build_icon_path};
-use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -84,8 +84,10 @@ pub fn list_themes() -> Vec<String> {
         .flatten()
         .map(|path| &path.index)
         .filter_map(|index| {
-            let file = std::fs::File::open(index).ok()?;
-            let mut reader = std::io::BufReader::new(file);
+            let file = std::fs::File::open(index)
+                .and_then(|file| unsafe { Mmap::map(&file) })
+                .ok()?;
+            let mut reader = std::io::Cursor::new(file.as_ref());
 
             let mut line = String::new();
             while let Ok(read) = reader.read_line(&mut line) {
@@ -133,8 +135,10 @@ pub fn default_theme_gtk() -> Option<String> {
         let name = name.trim().trim_matches('\'');
         THEMES.get(name).and_then(|themes| {
             themes.first().and_then(|path| {
-                let file = std::fs::File::open(&path.index).ok()?;
-                let mut reader = std::io::BufReader::new(file);
+                let file = std::fs::File::open(&path.index)
+                    .and_then(|file| unsafe { Mmap::map(&file) })
+                    .ok()?;
+                let mut reader = std::io::Cursor::new(file.as_ref());
 
                 let mut line = String::new();
                 while let Ok(read) = reader.read_line(&mut line) {
@@ -313,9 +317,9 @@ impl<'a> LookupBuilder<'a> {
         }
 
         // Records theme paths that have already been searched.
-        let searched_themes = &mut HashSet::new();
+        let searched_themes = &mut Vec::new();
         // Record themes whose inherits have been searched.
-        let search_inherits = &mut HashSet::new();
+        let search_inherits = &mut Vec::new();
 
         // Then lookup in the given theme
         THEMES
@@ -332,14 +336,19 @@ impl<'a> LookupBuilder<'a> {
                             self.search_theme_inherits(search_inherits, searched_themes, t)
                         })
                     })
+                    // Search the cosmic icon theme
+                    .or_else(|| self.search_inherited_theme(searched_themes, "Cosmic"))
                     // Search the hicolor icon theme if it was not previously searched
                     .or_else(|| self.search_inherited_theme(searched_themes, "hicolor"))
+                    // GNOME applications may rely on the gnome theme
+                    .or_else(|| self.search_inherited_theme(searched_themes, "gnome"))
+                    // Ubuntu applications may require Yaru
+                    .or_else(|| self.search_inherited_theme(searched_themes, "Yaru"))
                     .or_else(|| {
                         for theme_base_dir in BASE_PATHS.iter() {
-                            if let Some(icon) =
-                                try_build_icon_path(self.name, theme_base_dir, self.force_svg)
-                            {
-                                return Some(icon);
+                            let mut path = theme_base_dir.clone();
+                            if try_build_icon_path(&mut path, self.name, self.force_svg) {
+                                return Some(path);
                             }
                         }
                         None
@@ -347,7 +356,9 @@ impl<'a> LookupBuilder<'a> {
                     .or_else(|| {
                         let p = PathBuf::from(&self.name);
                         if let (Some(name), Some(parent)) = (p.file_stem(), p.parent()) {
-                            try_build_icon_path(&name.to_string_lossy(), parent, self.force_svg)
+                            let mut path = parent.to_path_buf();
+                            try_build_icon_path(&mut path, &name.to_string_lossy(), self.force_svg)
+                                .then_some(path)
                         } else {
                             None
                         }
@@ -383,7 +394,7 @@ impl<'a> LookupBuilder<'a> {
     }
 
     /// Search a theme by its path for a matching icon if not already searched.
-    fn search_theme(&self, searched_themes: &mut HashSet<u64>, theme: &Theme) -> Option<PathBuf> {
+    fn search_theme(&self, searched_themes: &mut Vec<u64>, theme: &Theme) -> Option<PathBuf> {
         // Store hash of the theme.
         let theme_hash = {
             let mut hasher = std::hash::DefaultHasher::new();
@@ -391,7 +402,8 @@ impl<'a> LookupBuilder<'a> {
             hasher.finish()
         };
 
-        if searched_themes.insert(theme_hash) {
+        if let Err(pos) = searched_themes.binary_search(&theme_hash) {
+            searched_themes.insert(pos, theme_hash);
             return theme.try_get_icon(self.name, self.size, self.scale, self.force_svg);
         }
 
@@ -401,8 +413,8 @@ impl<'a> LookupBuilder<'a> {
     // Search the inherits of a theme if not already searched.
     fn search_theme_inherits(
         &self,
-        search_inherits: &mut HashSet<u64>,
-        searched_themes: &mut HashSet<u64>,
+        search_inherits: &mut Vec<u64>,
+        searched_themes: &mut Vec<u64>,
         theme: &Theme,
     ) -> Option<PathBuf> {
         // Store hash of the theme.
@@ -412,7 +424,8 @@ impl<'a> LookupBuilder<'a> {
             hasher.finish()
         };
 
-        if search_inherits.insert(theme_hash) {
+        if let Err(pos) = search_inherits.binary_search(&theme_hash) {
+            search_inherits.insert(pos, theme_hash);
             let Ok(file) = theme::read_ini_theme(&theme.index) else {
                 return None;
             };
@@ -434,7 +447,7 @@ impl<'a> LookupBuilder<'a> {
     /// Search the inherits of a theme by its name if not already searched.
     fn search_inherited_theme(
         &self,
-        searched_themes: &mut HashSet<u64>,
+        searched_themes: &mut Vec<u64>,
         theme: &str,
     ) -> Option<PathBuf> {
         THEMES
@@ -490,7 +503,7 @@ mod test {
 
     #[test]
     fn cosmic_weather_storm_symbolic() {
-        let firefox = lookup("weather-storm-symbolic").with_theme("Cosmic").find();
+        let firefox = lookup("weather-storm-symbolic").find();
 
         asserting!("Is the cosmic icon theme installed?")
             .that(&firefox)
@@ -502,10 +515,7 @@ mod test {
 
     #[test]
     fn cosmic_weather_storm_symbolic_force_svg() {
-        let firefox = lookup("weather-storm-symbolic")
-            .with_theme("Cosmic")
-            .force_svg()
-            .find();
+        let firefox = lookup("weather-storm-symbolic").force_svg().find();
 
         asserting!("Is the cosmic icon theme installed?")
             .that(&firefox)
@@ -525,6 +535,46 @@ mod test {
                 ".local/share/flatpak/exports/share/icons/hicolor/scalable/apps/com.slack.Slack.svg"
             )),
             "Is the Slack flatpak installed locally?"
+        );
+    }
+
+    #[test]
+    fn vscode_pixmap() {
+        assert_eq!(
+            lookup("vscode").find(),
+            Some(PathBuf::from("/usr/share/pixmaps/vscode.png")),
+            "Is VS Code installed locally on the host?"
+        );
+    }
+
+    #[test]
+    fn libreoffice_startcenter() {
+        assert_eq!(
+            lookup("libreoffice-startcenter").find(),
+            Some(PathBuf::from(
+                "/usr/share/icons/hicolor/24x24/apps/libreoffice-startcenter.png"
+            )),
+            "Is libreoffice installed locally on the host?"
+        );
+    }
+
+    #[test]
+    fn gnome_advanced_network() {
+        assert_eq!(
+            lookup("preferences-system-network").find(),
+            Some(PathBuf::from(
+                "/usr/share/icons/gnome/24x24/categories/preferences-system-network.png"
+            )),
+            "Is the gnome icon theme installed?"
+        );
+    }
+
+    #[test]
+    fn ubuntu_additional_drivers() {
+        assert_eq!(
+            lookup("jockey").find(),
+            Some(PathBuf::from("/usr/share/icons/Yaru/24x24/apps/jockey.png")),
+            "Is the gnome icon theme installed?"
         );
     }
 

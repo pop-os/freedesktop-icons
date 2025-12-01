@@ -133,7 +133,7 @@ pub fn default_theme_gtk() -> Option<String> {
     if gsettings.status.success() {
         let name = String::from_utf8(gsettings.stdout).ok()?;
         let name = name.trim().trim_matches('\'');
-        THEMES.get(name).and_then(|themes| {
+        THEMES.get(name.as_bytes()).and_then(|themes| {
             themes.first().and_then(|path| {
                 let file = std::fs::File::open(&path.index)
                     .and_then(|file| unsafe { Mmap::map(&file) })
@@ -323,8 +323,8 @@ impl<'a> LookupBuilder<'a> {
 
         // Then lookup in the given theme
         THEMES
-            .get(self.theme)
-            .or_else(|| THEMES.get("hicolor"))
+            .get(self.theme.as_bytes())
+            .or_else(|| THEMES.get("hicolor".as_bytes()))
             .and_then(|icon_themes| {
                 let icon = icon_themes
                     .iter()
@@ -337,13 +337,13 @@ impl<'a> LookupBuilder<'a> {
                         })
                     })
                     // Search the cosmic icon theme
-                    .or_else(|| self.search_inherited_theme(searched_themes, "Cosmic"))
+                    .or_else(|| self.search_inherited_theme(searched_themes, "Cosmic".as_bytes()))
                     // Search the hicolor icon theme if it was not previously searched
-                    .or_else(|| self.search_inherited_theme(searched_themes, "hicolor"))
+                    .or_else(|| self.search_inherited_theme(searched_themes, "hicolor".as_bytes()))
                     // GNOME applications may rely on the gnome theme
-                    .or_else(|| self.search_inherited_theme(searched_themes, "gnome"))
+                    .or_else(|| self.search_inherited_theme(searched_themes, "gnome".as_bytes()))
                     // Ubuntu applications may require Yaru
-                    .or_else(|| self.search_inherited_theme(searched_themes, "Yaru"))
+                    .or_else(|| self.search_inherited_theme(searched_themes, "Yaru".as_bytes()))
                     .or_else(|| {
                         for theme_base_dir in BASE_PATHS.iter() {
                             let mut path = theme_base_dir.clone();
@@ -430,13 +430,9 @@ impl<'a> LookupBuilder<'a> {
                 return None;
             };
 
-            let Ok(file) = std::str::from_utf8(file.as_ref()) else {
-                return None;
-            };
-
             // Search all inherited themes that we haven't already searched
             return theme
-                .inherits(file)
+                .inherits(file.as_ref())
                 .into_iter()
                 .find_map(|parent| self.search_inherited_theme(searched_themes, parent));
         }
@@ -448,7 +444,7 @@ impl<'a> LookupBuilder<'a> {
     fn search_inherited_theme(
         &self,
         searched_themes: &mut Vec<u64>,
-        theme: &str,
+        theme: &[u8],
     ) -> Option<PathBuf> {
         THEMES
             .get(theme)?

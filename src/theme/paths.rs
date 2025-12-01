@@ -41,7 +41,7 @@ mod test {
     #[test]
     fn should_get_all_themes() {
         let themes = get_all_themes();
-        assert_that!(themes.get("hicolor")).is_some();
+        assert_that!(themes.get(&b"hicolor"[..])).is_some();
     }
 
     #[test]

@@ -3,6 +3,7 @@ use memmap2::Mmap;
 pub(crate) use paths::BASE_PATHS;
 use std::collections::BTreeMap;
 use std::ops::ControlFlow;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -10,7 +11,7 @@ mod directories;
 mod parse;
 mod paths;
 
-pub static THEMES: LazyLock<BTreeMap<String, Vec<Theme>>> = LazyLock::new(get_all_themes);
+pub static THEMES: LazyLock<BTreeMap<Vec<u8>, Vec<Theme>>> = LazyLock::new(get_all_themes);
 
 #[inline]
 pub fn read_ini_theme(path: &Path) -> std::io::Result<Mmap> {
@@ -33,15 +34,14 @@ impl Theme {
         force_svg: bool,
     ) -> Option<PathBuf> {
         let file = read_ini_theme(&self.index).ok()?;
-        let file = std::str::from_utf8(file.as_ref()).ok()?;
-        self.try_get_icon_exact_size(file, name, size, scale, force_svg)
-            .or_else(|| self.try_get_icon_closest_size(file, name, size, scale, force_svg))
+        self.try_get_icon_exact_size(file.as_ref(), name, size, scale, force_svg)
+            .or_else(|| self.try_get_icon_closest_size(file.as_ref(), name, size, scale, force_svg))
     }
 
     #[inline]
     fn try_get_icon_exact_size(
         &self,
-        file: &str,
+        file: &[u8],
         name: &str,
         size: u16,
         scale: u16,
@@ -53,7 +53,7 @@ impl Theme {
     #[inline]
     fn match_size<'a>(
         &'a self,
-        file: &'a str,
+        file: &'a [u8],
         size: u16,
         scale: u16,
     ) -> impl Iterator<Item = &'a str> + 'a {
@@ -65,7 +65,7 @@ impl Theme {
     #[inline]
     fn try_get_icon_closest_size(
         &self,
-        file: &str,
+        file: &[u8],
         name: &str,
         size: u16,
         scale: u16,
@@ -104,7 +104,7 @@ impl Theme {
 
     fn closest_match_size<'a>(
         &'a self,
-        file: &'a str,
+        file: &'a [u8],
         size: u16,
         scale: u16,
     ) -> impl Iterator<Item = &'a str> + 'a {
@@ -155,8 +155,8 @@ fn try_build_ext(path: &mut PathBuf, name_buf: &mut String, name: &str, ext: &'s
 }
 
 // Iter through the base paths and get all theme directories
-pub(super) fn get_all_themes() -> BTreeMap<String, Vec<Theme>> {
-    let mut icon_themes = BTreeMap::<_, Vec<_>>::new();
+pub(super) fn get_all_themes() -> BTreeMap<Vec<u8>, Vec<Theme>> {
+    let mut icon_themes = BTreeMap::<Vec<u8>, Vec<_>>::new();
     let mut found_indices = BTreeMap::new();
     let mut to_revisit = Vec::new();
 
@@ -176,8 +176,10 @@ pub(super) fn get_all_themes() -> BTreeMap<String, Vec<Theme>> {
                 if fallback_index.is_none() {
                     found_indices.insert(name.clone(), theme.index.clone());
                 }
-                let name = name.to_string_lossy().to_string();
-                icon_themes.entry(name).or_default().push(theme);
+                icon_themes
+                    .entry(name.as_bytes().to_owned())
+                    .or_default()
+                    .push(theme);
             } else if entry.path().is_dir() {
                 to_revisit.push(entry);
             }
@@ -188,9 +190,10 @@ pub(super) fn get_all_themes() -> BTreeMap<String, Vec<Theme>> {
         let name = entry.file_name();
         let fallback_index = found_indices.get(&name);
         if let Some(theme) = Theme::from_path(entry.path(), fallback_index) {
-            if let Some(name) = name.to_str() {
-                icon_themes.entry(name.to_owned()).or_default().push(theme);
-            }
+            icon_themes
+                .entry(name.as_bytes().to_owned())
+                .or_default()
+                .push(theme);
         }
     }
 
@@ -230,24 +233,22 @@ mod test {
 
     #[test]
     fn get_one_icon() {
-        let themes = THEMES.get("Adwaita").unwrap();
+        let themes = THEMES.get(&b"Adwaita"[..]).unwrap();
         println!(
             "{:?}",
             themes.iter().find_map(|t| {
                 let file = super::read_ini_theme(&t.index).ok()?;
-                let file = std::str::from_utf8(file.as_ref()).ok()?;
-                t.try_get_icon_exact_size(file, "edit-delete-symbolic", 24, 1, false)
+                t.try_get_icon_exact_size(file.as_ref(), "edit-delete-symbolic", 24, 1, false)
             })
         );
     }
 
     #[test]
     fn should_get_png_first() {
-        let themes = THEMES.get("hicolor").unwrap();
+        let themes = THEMES.get(&b"hicolor"[..]).unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = super::read_ini_theme(&t.index).ok()?;
-            let file = std::str::from_utf8(file.as_ref()).ok()?;
-            t.try_get_icon_exact_size(file, "blueman", 24, 1, true)
+            t.try_get_icon_exact_size(file.as_ref(), "blueman", 24, 1, true)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(
             "/usr/share/icons/hicolor/22x22/apps/blueman.png",
@@ -256,11 +257,10 @@ mod test {
 
     #[test]
     fn should_get_svg_first() {
-        let themes = THEMES.get("hicolor").unwrap();
+        let themes = THEMES.get(&b"hicolor"[..]).unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = super::read_ini_theme(&t.index).ok()?;
-            let file = std::str::from_utf8(file.as_ref()).ok()?;
-            t.try_get_icon_exact_size(file, "blueman", 24, 1, false)
+            t.try_get_icon_exact_size(file.as_ref(), "blueman", 24, 1, false)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(
             "/usr/share/icons/hicolor/22x22/apps/blueman.png",

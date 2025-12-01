@@ -72,9 +72,9 @@ impl Default for DirectoryType {
     }
 }
 
-impl From<&str> for DirectoryType {
-    fn from(value: &str) -> Self {
-        match value.as_bytes()[0] {
+impl From<&[u8]> for DirectoryType {
+    fn from(value: &[u8]) -> Self {
+        match value[0] {
             b'F' => DirectoryType::Fixed,
             b'S' => DirectoryType::Scalable,
             _ => DirectoryType::Threshold,

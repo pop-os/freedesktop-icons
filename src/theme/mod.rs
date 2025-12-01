@@ -1,6 +1,8 @@
+use crate::theme::directories::DirectoryType;
 use crate::theme::paths::ThemePath;
 use memmap2::Mmap;
 pub(crate) use paths::BASE_PATHS;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 use std::os::unix::ffi::OsStrExt;
@@ -31,35 +33,10 @@ impl Theme {
         name: &str,
         size: u16,
         scale: u16,
-        force_svg: bool,
+        prefer_svg: bool,
     ) -> Option<PathBuf> {
         let file = read_ini_theme(&self.index).ok()?;
-        self.try_get_icon_exact_size(file.as_ref(), name, size, scale, force_svg)
-            .or_else(|| self.try_get_icon_closest_size(file.as_ref(), name, size, scale, force_svg))
-    }
-
-    #[inline]
-    fn try_get_icon_exact_size(
-        &self,
-        file: &[u8],
-        name: &str,
-        size: u16,
-        scale: u16,
-        force_svg: bool,
-    ) -> Option<PathBuf> {
-        self.try_fold_icon_path(self.match_size(file, size, scale), name, force_svg)
-    }
-
-    #[inline]
-    fn match_size<'a>(
-        &'a self,
-        file: &'a [u8],
-        size: u16,
-        scale: u16,
-    ) -> impl Iterator<Item = &'a str> + 'a {
-        self.get_all_directories(file)
-            .filter(move |directory| directory.match_size(size, scale))
-            .map(|dir| dir.name)
+        self.try_get_icon_closest_size(file.as_ref(), name, size, scale, prefer_svg)
     }
 
     #[inline]
@@ -69,37 +46,54 @@ impl Theme {
         name: &str,
         size: u16,
         scale: u16,
-        force_svg: bool,
+        prefer_svg: bool,
     ) -> Option<PathBuf> {
-        self.try_fold_icon_path(self.closest_match_size(file, size, scale), name, force_svg)
+        self.try_fold_icon_path(
+            self.closest_match_size(file, size, scale, prefer_svg),
+            name,
+            prefer_svg,
+        )
     }
 
     fn try_fold_icon_path<'a>(
         &self,
-        mut dir_names: impl Iterator<Item = &'a str>,
+        dir_names: Vec<(&'a str, i16, bool)>,
         name: &str,
-        force_svg: bool,
+        prefer_svg: bool,
     ) -> Option<PathBuf> {
-        dir_names
-            .try_fold(self.path().clone(), move |mut path, dir_name| {
-                path.push(dir_name);
-                if try_build_icon_path(&mut path, name, force_svg) {
-                    ControlFlow::Break(path)
-                } else {
-                    let components = dir_name
-                        .as_bytes()
-                        .iter()
-                        .fold(2, |n, c| n + (*c == b'/') as u32)
-                        as usize;
+        let extensions = if prefer_svg {
+            [".svg", ".png", ".xpm"]
+        } else {
+            [".png", ".svg", ".xpm"]
+        };
 
-                    for _ in 0..components {
-                        path.pop();
-                    }
+        extensions.into_iter().find_map(|ext| {
+            dir_names
+                .iter()
+                .try_fold(
+                    (self.path().clone(), String::new()),
+                    move |(mut path, mut name_buf), (dir_name, _, _)| {
+                        path.push(dir_name);
+                        if try_build_icon_path(&mut path, &mut name_buf, name, ext) {
+                            ControlFlow::Break(path)
+                        } else {
+                            name_buf.clear();
+                            let components = dir_name
+                                .as_bytes()
+                                .iter()
+                                .fold(2, |n, c| n + (*c == b'/') as u32)
+                                as usize;
 
-                    ControlFlow::Continue(path)
-                }
-            })
-            .break_value()
+                            for _ in 0..components {
+                                path.pop();
+                            }
+
+                            ControlFlow::Continue((path, name_buf))
+                        }
+                    },
+                )
+                .break_value()
+        })
     }
 
     fn closest_match_size<'a>(
@@ -107,23 +101,31 @@ impl Theme {
         file: &'a [u8],
         size: u16,
         scale: u16,
-    ) -> impl Iterator<Item = &'a str> + 'a {
-        let dirs = self.get_all_directories(file);
+        prefer_svg: bool,
+    ) -> Vec<(&'a str, i16, bool)> {
+        let mut unsorted = self.get_all_directories(file).fold(
+            Vec::<(&'a str, i16, bool)>::new(),
+            |mut unsorted, directory| {
+                let is_scalable = matches!(directory.type_, DirectoryType::Scalable);
+                let distance = directory.directory_size_distance(size as i16, scale as i16);
+                unsorted.push((directory.name, distance.abs(), is_scalable));
+                unsorted
+            },
+        );
 
-        dirs.fold(Vec::<(&'a str, i16)>::new(), |mut sorted, directory| {
-            let distance = directory.directory_size_distance(size, scale);
-            if distance < i16::MAX {
-                let a = distance.abs();
-                let pos = sorted
-                    .binary_search_by(|(_, b)| b.cmp(&a))
-                    .unwrap_or_else(|pos| pos);
-                sorted.insert(pos, (directory.name, a));
+        unsorted.sort_by(|a, b| {
+            let ordering = if prefer_svg {
+                b.2.cmp(&a.2)
+            } else {
+                a.2.cmp(&b.2)
+            };
+            match ordering {
+                Ordering::Equal => a.1.cmp(&b.1),
+                _ => ordering,
             }
+        });
 
-            sorted
-        })
-        .into_iter()
-        .map(|(name, _)| name)
+        unsorted
     }
 
     fn path(&self) -> &PathBuf {
@@ -131,19 +133,15 @@ impl Theme {
     }
 }
 
-pub(super) fn try_build_icon_path<'a>(path: &'a mut PathBuf, name: &str, force_svg: bool) -> bool {
-    let mut name_buf = String::with_capacity(name.len() + 4);
+pub(super) fn try_build_icon_path<'a>(
+    path: &'a mut PathBuf,
+    name_buf: &'a mut String,
+    name: &str,
+    extension: &'static str,
+) -> bool {
     name_buf.push_str(name);
     path.push(name);
-    if force_svg {
-        try_build_ext(path, &mut name_buf, name, ".svg")
-            || try_build_ext(path, &mut name_buf, name, ".png")
-            || try_build_ext(path, &mut name_buf, name, ".xmp")
-    } else {
-        try_build_ext(path, &mut name_buf, name, ".png")
-            || try_build_ext(path, &mut name_buf, name, ".svg")
-            || try_build_ext(path, &mut name_buf, name, ".xmp")
-    }
+    try_build_ext(path, name_buf, name, extension)
 }
 
 #[inline]
@@ -238,7 +236,7 @@ mod test {
             "{:?}",
             themes.iter().find_map(|t| {
                 let file = super::read_ini_theme(&t.index).ok()?;
-                t.try_get_icon_exact_size(file.as_ref(), "edit-delete-symbolic", 24, 1, false)
+                t.try_get_icon_closest_size(file.as_ref(), "edit-delete-symbolic", 24, 1, false)
             })
         );
     }
@@ -248,10 +246,22 @@ mod test {
         let themes = THEMES.get(&b"hicolor"[..]).unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = super::read_ini_theme(&t.index).ok()?;
-            t.try_get_icon_exact_size(file.as_ref(), "blueman", 24, 1, true)
+            t.try_get_icon_closest_size(file.as_ref(), "blueman", 22, 1, false)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(
             "/usr/share/icons/hicolor/22x22/apps/blueman.png",
+        ));
+    }
+
+    #[test]
+    fn should_get_png_first_92() {
+        let themes = THEMES.get(&b"hicolor"[..]).unwrap();
+        let icon = themes.iter().find_map(|t| {
+            let file = super::read_ini_theme(&t.index).ok()?;
+            t.try_get_icon_closest_size(file.as_ref(), "blueman", 92, 1, false)
+        });
+        assert_that!(icon).is_some().is_equal_to(PathBuf::from(
+            "/usr/share/icons/hicolor/96x96/apps/blueman.png",
         ));
     }
 
@@ -260,10 +270,22 @@ mod test {
         let themes = THEMES.get(&b"hicolor"[..]).unwrap();
         let icon = themes.iter().find_map(|t| {
             let file = super::read_ini_theme(&t.index).ok()?;
-            t.try_get_icon_exact_size(file.as_ref(), "blueman", 24, 1, false)
+            t.try_get_icon_closest_size(file.as_ref(), "blueman", 24, 1, true)
         });
         assert_that!(icon).is_some().is_equal_to(PathBuf::from(
-            "/usr/share/icons/hicolor/22x22/apps/blueman.png",
+            "/usr/share/icons/hicolor/scalable/apps/blueman.svg",
+        ));
+    }
+
+    #[test]
+    fn should_get_svg_first_96() {
+        let themes = THEMES.get(&b"hicolor"[..]).unwrap();
+        let icon = themes.iter().find_map(|t| {
+            let file = super::read_ini_theme(&t.index).ok()?;
+            t.try_get_icon_closest_size(file.as_ref(), "blueman", 96, 1, true)
+        });
+        assert_that!(icon).is_some().is_equal_to(PathBuf::from(
+            "/usr/share/icons/hicolor/scalable/apps/blueman.svg",
         ));
     }
 }

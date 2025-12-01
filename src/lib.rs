@@ -58,6 +58,7 @@ use crate::cache::{CACHE, CacheEntry};
 use crate::theme::{THEMES, Theme, try_build_icon_path};
 use std::hash::{Hash, Hasher};
 use std::io::BufRead;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -345,23 +346,28 @@ impl<'a> LookupBuilder<'a> {
                     // Ubuntu applications may require Yaru
                     .or_else(|| self.search_inherited_theme(searched_themes, "Yaru".as_bytes()))
                     .or_else(|| {
-                        for theme_base_dir in BASE_PATHS.iter() {
-                            let mut path = theme_base_dir.clone();
-                            if try_build_icon_path(&mut path, self.name, self.force_svg) {
-                                return Some(path);
-                            }
-                        }
-                        None
-                    })
-                    .or_else(|| {
-                        let p = PathBuf::from(&self.name);
-                        if let (Some(name), Some(parent)) = (p.file_stem(), p.parent()) {
-                            let mut path = parent.to_path_buf();
-                            try_build_icon_path(&mut path, &name.to_string_lossy(), self.force_svg)
-                                .then_some(path)
+                        let extensions = if self.force_svg {
+                            [".svg", ".png", ".xpm"]
                         } else {
-                            None
-                        }
+                            [".png", ".svg", ".xpm"]
+                        };
+
+                        let mut name_buf = String::new();
+
+                        extensions
+                            .into_iter()
+                            .try_for_each(|ext| {
+                                BASE_PATHS.iter().try_for_each(|theme_base_dir| {
+                                    let mut path = theme_base_dir.clone();
+                                    if try_build_icon_path(&mut path, &mut name_buf, self.name, ext)
+                                    {
+                                        return ControlFlow::Break(path);
+                                    }
+                                    name_buf.clear();
+                                    ControlFlow::Continue(())
+                                })
+                            })
+                            .break_value()
                     });
 
                 if self.cache {

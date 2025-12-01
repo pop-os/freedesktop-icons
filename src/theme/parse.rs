@@ -1,6 +1,6 @@
 use crate::theme::Theme;
 use crate::theme::directories::{Directory, DirectoryType};
-use bstr::{BStr, ByteSlice};
+use bstr::BStr;
 
 impl Theme {
     pub(super) fn get_all_directories<'a>(
@@ -10,27 +10,26 @@ impl Theme {
         let mut iterator = sections(file);
 
         std::iter::from_fn(move || {
+            let mut is_icon_theme = false;
             let mut name = "";
             let mut size = None;
             let mut max_size = None;
             let mut min_size = None;
             let mut threshold = None;
             let mut scale = None;
-            // let mut context = None;
             let mut dtype = DirectoryType::default();
 
             #[allow(clippy::while_let_on_iterator)]
             while let Some(event) = iterator.next() {
                 match event {
                     DirectorySection::Property(key, value) => {
-                        if name.is_empty() || name == "Icon Theme" {
+                        if is_icon_theme {
                             continue;
                         }
 
                         match key {
                             b"Size" => size = btoi::btoi(value).ok(),
                             b"Scale" => scale = btoi::btoi(value).ok(),
-                            // "Context" => context = Some(value),
                             b"Type" => dtype = DirectoryType::from(value),
                             b"MaxSize" => max_size = btoi::btoi(value).ok(),
                             b"MinSize" => min_size = btoi::btoi(value).ok(),
@@ -40,7 +39,11 @@ impl Theme {
                     }
 
                     DirectorySection::Section(new_name) => {
-                        name = std::str::from_utf8(new_name).unwrap_or("");
+                        let Ok(new_name) = std::str::from_utf8(new_name) else {
+                            return None;
+                        };
+                        is_icon_theme = new_name == "Icon Theme";
+                        name = new_name;
                         size = None;
                         max_size = None;
                         min_size = None;
@@ -50,7 +53,7 @@ impl Theme {
                     }
 
                     DirectorySection::EndSection => {
-                        if name.is_empty() || name == "Icon Theme" {
+                        if is_icon_theme {
                             continue;
                         }
 
@@ -60,7 +63,6 @@ impl Theme {
                             name,
                             size,
                             scale: scale.unwrap_or(1),
-                            // context,
                             type_: dtype,
                             maxsize: max_size.unwrap_or(size),
                             minsize: min_size.unwrap_or(size),
@@ -126,7 +128,11 @@ fn sections(file: &[u8]) -> impl Iterator<Item = DirectorySection<'_>> {
                 }
             };
 
-            let line = BStr::new(&file[prev..line_pos]).trim_ascii();
+            let line = BStr::new(unsafe {
+                // Indices from memchr are valid.
+                file.get_unchecked(prev..line_pos)
+            })
+            .trim_ascii();
             prev = line_pos + 1;
 
             if line.is_empty() {
@@ -161,7 +167,11 @@ fn icon_theme_section(file: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> + '_ 
     std::iter::from_fn(move || {
         loop {
             let line_pos = line_indices.next()?;
-            let line = BStr::new(&file[prev..line_pos]).trim_ascii();
+            let line = BStr::new(unsafe {
+                // Indices from memchr are valid.
+                file.get_unchecked(prev..line_pos)
+            })
+            .trim_ascii();
             prev = line_pos + 1;
 
             if line.is_empty() {
@@ -173,7 +183,10 @@ fn icon_theme_section(file: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> + '_ 
                     return None;
                 } else {
                     let section = &line[1..line.len() - 1];
-                    found_table = section == b"Icon Theme";
+                    found_table = true;
+                    if section != b"Icon Theme" {
+                        return None;
+                    }
                 }
             }
 

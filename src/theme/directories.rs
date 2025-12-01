@@ -10,30 +10,12 @@ pub struct Directory<'a> {
 }
 
 impl Directory<'_> {
-    pub fn match_size(&self, size: u16, scale: u16) -> bool {
-        let scale = scale as i16;
-        let size = size as i16;
-
-        if self.scale != scale {
-            false
-        } else {
-            match self.type_ {
-                DirectoryType::Fixed => self.size == size,
-                DirectoryType::Scalable => self.minsize <= size && size <= self.maxsize,
-                DirectoryType::Threshold => {
-                    self.size - self.threshold <= size && size <= self.size + self.threshold
-                }
-            }
-        }
-    }
-
-    pub fn directory_size_distance(&self, size: u16, scale: u16) -> i16 {
-        let scale = scale as i16;
-        let scaled_requested_size = size as i16 * scale;
-
+    pub fn directory_size_distance(&self, size: i16, scale: i16) -> i16 {
         match self.type_ {
-            DirectoryType::Fixed => self.size * self.scale - scaled_requested_size,
+            DirectoryType::Fixed => self.size * self.scale - size * scale,
+
             DirectoryType::Scalable => {
+                let scaled_requested_size = size * scale;
                 let min_scaled_size = self.minsize * self.scale;
                 if scaled_requested_size < min_scaled_size {
                     min_scaled_size - scaled_requested_size
@@ -46,7 +28,9 @@ impl Directory<'_> {
                     }
                 }
             }
+
             DirectoryType::Threshold => {
+                let scaled_requested_size = size * scale;
                 if scaled_requested_size < (self.size - self.threshold) * scale {
                     self.minsize * self.scale - scaled_requested_size
                 } else if scaled_requested_size > (self.size + self.threshold) * scale {

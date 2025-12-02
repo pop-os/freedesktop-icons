@@ -1,24 +1,6 @@
 use cosmic_freedesktop_icons::lookup;
-use gtk4::{IconLookupFlags, IconTheme, TextDirection};
 use speculoos::prelude::*;
 use std::path::PathBuf;
-
-#[test]
-fn gtk_lookup() {
-    gtk4::init().unwrap();
-    let theme = IconTheme::new();
-
-    let x = theme.lookup_icon(
-        "firefox",
-        &[],
-        24,
-        1,
-        TextDirection::None,
-        IconLookupFlags::empty(),
-    );
-
-    assert!(x.icon_name().is_some())
-}
 
 // Linicon sometimes fails with theme that have unknown parents
 // This test only ensure we are running the correct function in the benchmarks

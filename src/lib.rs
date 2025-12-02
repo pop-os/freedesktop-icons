@@ -110,58 +110,6 @@ pub fn list_themes() -> Vec<String> {
     themes
 }
 
-/// Return the default GTK theme if set.
-///
-/// ## Example
-/// ```rust, no_run
-/// use cosmic_freedesktop_icons::default_theme_gtk;
-///
-/// let theme = default_theme_gtk();
-///
-/// assert_eq!(Some("Adwaita"), theme.as_deref());
-/// ```
-pub fn default_theme_gtk() -> Option<String> {
-    // Calling gsettings is the simplest way to retrieve the default icon theme without adding
-    // GTK as a dependency. There seems to be several ways to set the default GTK theme
-    // including a file in XDG_CONFIG_HOME as well as an env var. Gsettings is the most
-    // straightforward method.
-    let gsettings = std::process::Command::new("gsettings")
-        .args(["get", "org.gnome.desktop.interface", "icon-theme"])
-        .output()
-        .ok()?;
-
-    // Only return the theme if it's in the cache.
-    if gsettings.status.success() {
-        let name = String::from_utf8(gsettings.stdout).ok()?;
-        let name = name.trim().trim_matches('\'');
-        THEMES.get(name.as_bytes()).and_then(|themes| {
-            themes.first().and_then(|path| {
-                let file = std::fs::File::open(&path.index)
-                    .and_then(|file| unsafe { Mmap::map(&file) })
-                    .ok()?;
-                let mut reader = std::io::Cursor::new(file.as_ref());
-
-                let mut line = String::new();
-                while let Ok(read) = reader.read_line(&mut line) {
-                    if read == 0 {
-                        break;
-                    }
-
-                    if let Some(name) = line.strip_prefix("Name=") {
-                        return Some(name.trim().to_owned());
-                    }
-
-                    line.clear();
-                }
-
-                None
-            })
-        })
-    } else {
-        None
-    }
-}
-
 /// The lookup builder struct, holding all the lookup query parameters.
 pub struct LookupBuilder<'a> {
     name: &'a str,

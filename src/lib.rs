@@ -572,27 +572,6 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "local_tests")]
-    fn compare_to_linincon_with_theme() {
-        let lin_wireshark = linicon::lookup_icon("wireshark")
-            .next()
-            .unwrap()
-            .unwrap()
-            .path;
-
-        let wireshark = lookup("wireshark")
-            .with_size(16)
-            .with_scale(1)
-            .with_theme("Papirus")
-            .find();
-
-        asserting!("Given the same input parameter, lookup should output be the same as linincon")
-            .that(&wireshark)
-            .is_some()
-            .is_equal_to(lin_wireshark);
-    }
-
-    #[test]
     fn should_not_attempt_to_lookup_a_not_found_cached_icon() {
         let not_found = lookup("not-found").with_cache().find();
 

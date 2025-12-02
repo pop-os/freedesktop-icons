@@ -12,11 +12,10 @@ keywords = ["icons", "gui", "freedesktop"]
 [dependencies]
 bstr = "1.12.1"
 btoi = "0.5.0"
-dirs = "6.0"
 memchr = "2.7.6"
 memmap2 = "0.9"
 thiserror = "2.0"
-tracing = "0.1.41"
+tracing = { version = "0.1.41", no-default-features = true }
 xdg = "3.0"
 
 [dev-dependencies]

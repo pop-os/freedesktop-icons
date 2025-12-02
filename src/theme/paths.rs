@@ -1,4 +1,3 @@
-use dirs::home_dir;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use xdg::BaseDirectories;
@@ -20,7 +19,9 @@ fn icon_theme_base_paths() -> Vec<PathBuf> {
         .into_iter()
         .flat_map(|data_home| [data_home.join("icons"), data_home.join("pixmaps")].into_iter());
 
-    let home_dir = home_dir().into_iter().map(|home| home.join(".icons"));
+    let home_dir = std::env::home_dir()
+        .into_iter()
+        .map(|home| home.join(".icons"));
 
     data_dirs
         .chain(data_home_dirs)

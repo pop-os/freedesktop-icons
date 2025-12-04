@@ -63,7 +63,10 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 mod cache;
+mod pwa;
 mod theme;
+
+pub use pwa::{extract_crx_id, lookup_chromium_pwa_icon, lookup_chromium_pwa_icon_with_paths};
 
 /// Return the list of installed themes on the system
 ///

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::cache::{CACHE, CacheEntry};
+use crate::theme::paths::BASE_PATHS;
 
 const PWA_THEME_DARK: &str = "pwa-hicolor-dark";
 const PWA_THEME_LIGHT: &str = "pwa-hicolor-light";
@@ -168,33 +169,11 @@ fn ordered_sizes(requested_px: u16) -> Vec<&'static str> {
 }
 
 fn default_hicolor_paths() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    if let Ok(home) = std::env::var("HOME") {
-        let home = PathBuf::from(home);
-        dirs.push(home.join(".local/share/icons/hicolor"));
-        dirs.push(home.join(".local/share/flatpak/exports/share/icons/hicolor"));
-
-        let var_app = home.join(".var/app");
-        if var_app.exists() {
-            if let Ok(read) = std::fs::read_dir(&var_app) {
-                for ent in read.flatten() {
-                    let p = ent.path().join("data/icons/hicolor");
-                    if p.exists() {
-                        dirs.push(p);
-                    }
-                }
-            }
-        }
-    }
-    dirs.push(PathBuf::from("/usr/share/icons/hicolor"));
-    dirs.push(PathBuf::from("/usr/local/share/icons/hicolor"));
-    dirs.push(PathBuf::from(
-        "/var/lib/flatpak/exports/share/icons/hicolor",
-    ));
-    dirs.push(PathBuf::from(
-        "/usr/share/flatpak/exports/share/icons/hicolor",
-    ));
-    dirs
+    BASE_PATHS
+        .iter()
+        .map(|base| base.join("hicolor"))
+        .filter(|p| p.exists())
+        .collect()
 }
 
 fn is_crx_id(candidate: &str) -> bool {

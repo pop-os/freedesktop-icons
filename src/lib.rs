@@ -256,9 +256,7 @@ impl<'a> LookupBuilder<'a> {
         if self.cache {
             match self.cache_lookup(self.theme) {
                 CacheEntry::Found(icon) => return Some(icon),
-                CacheEntry::NotFound(last_check)
-                    if last_check.duration_since(Instant::now()).as_secs() < 5 =>
-                {
+                CacheEntry::NotFound(last_check) if last_check.elapsed().as_secs() < 5 => {
                     return None;
                 }
                 _ => (),

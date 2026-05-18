@@ -118,6 +118,7 @@ pub struct LookupBuilder<'a> {
     scale: u16,
     size: u16,
     theme: &'a str,
+    extra_paths: &'a [PathBuf],
 }
 
 /// Build an icon lookup for the given icon name.
@@ -224,6 +225,14 @@ impl<'a> LookupBuilder<'a> {
         self
     }
 
+    /// Search additional directories for the icon as flat paths (no theme hierarchy).
+    /// These paths are searched before the theme chain.
+    #[inline]
+    pub fn with_extra_paths<'b: 'a>(mut self, paths: &'b [PathBuf]) -> Self {
+        self.extra_paths = paths;
+        self
+    }
+
     /// Execute the current lookup
     /// if no icon is found in the current theme fallback to
     /// `/usr/share/icons/hicolor` theme and then to `/usr/share/pixmaps`.
@@ -245,6 +254,7 @@ impl<'a> LookupBuilder<'a> {
             scale: 1,
             size: 24,
             theme: "hicolor",
+            extra_paths: &[],
         }
     }
 
@@ -260,6 +270,33 @@ impl<'a> LookupBuilder<'a> {
                     return None;
                 }
                 _ => (),
+            }
+        }
+
+        if !self.extra_paths.is_empty() {
+            let extensions = if self.force_svg {
+                [".svg", ".png", ".xpm"]
+            } else {
+                [".png", ".svg", ".xpm"]
+            };
+            let mut name_buf = String::new();
+
+            let result = extensions
+                .into_iter()
+                .try_for_each(|ext| {
+                    self.extra_paths.iter().try_for_each(|dir| {
+                        let mut path = dir.clone();
+                        if try_build_icon_path(&mut path, &mut name_buf, self.name, ext) {
+                            return ControlFlow::Break(path);
+                        }
+                        name_buf.clear();
+                        ControlFlow::Continue(())
+                    })
+                })
+                .break_value();
+
+            if result.is_some() {
+                return result;
             }
         }
 

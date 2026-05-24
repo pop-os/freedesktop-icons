@@ -152,6 +152,46 @@ fn try_build_ext(path: &mut PathBuf, name_buf: &mut String, name: &str, ext: &'s
     path.exists()
 }
 
+// SNI's IconThemePath doesn't have to be an XDG-shaped theme. Some apps point
+// it at a flat dir (JetBrains Toolbox); others ship a partial hicolor tree
+// (Dropbox: `<theme_path>/hicolor/<size>/<context>/<file>`). To handle both,
+// walk subdirectories up to `depth` extra levels, preferring earlier
+// extensions at each level (DFS, first match wins).
+pub(super) fn search_subtree(
+    dir: &Path,
+    name: &str,
+    extensions: &[&'static str],
+    depth: u32,
+) -> Option<PathBuf> {
+    for ext in extensions {
+        let mut candidate = dir.to_path_buf();
+        candidate.push(format!("{name}{ext}"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    if depth == 0 {
+        return None;
+    }
+    let mut subdirs: Vec<PathBuf> = match std::fs::read_dir(dir) {
+        Ok(entries) => entries
+            .flatten()
+            .filter_map(|entry| {
+                entry
+                    .file_type()
+                    .ok()
+                    .filter(|ft| ft.is_dir())
+                    .map(|_| entry.path())
+            })
+            .collect(),
+        Err(_) => return None,
+    };
+    subdirs.sort();
+    subdirs
+        .into_iter()
+        .find_map(|sub| search_subtree(&sub, name, extensions, depth - 1))
+}
+
 // Iter through the base paths and get all theme directories
 pub(super) fn get_all_themes() -> BTreeMap<Vec<u8>, Vec<Theme>> {
     let mut icon_themes = BTreeMap::<Vec<u8>, Vec<_>>::new();

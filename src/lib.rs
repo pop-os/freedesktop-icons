@@ -55,7 +55,7 @@ use memmap2::Mmap;
 use theme::BASE_PATHS;
 
 use crate::cache::{CACHE, CacheEntry};
-use crate::theme::{THEMES, Theme, try_build_icon_path};
+use crate::theme::{THEMES, Theme, search_subtree, try_build_icon_path};
 use std::hash::{Hash, Hasher};
 use std::io::BufRead;
 use std::ops::ControlFlow;
@@ -225,8 +225,12 @@ impl<'a> LookupBuilder<'a> {
         self
     }
 
-    /// Search additional directories for the icon as flat paths (no theme hierarchy).
-    /// These paths are searched before the theme chain.
+    /// Search additional directories for the icon, before the theme chain.
+    /// Each path is checked first as a flat directory (`<path>/<name>.<ext>`,
+    /// for apps like JetBrains Toolbox that drop icons at the root) and then
+    /// walked up to 5 levels deep (for apps like Dropbox that ship a partial
+    /// `hicolor/<size>/<context>/<file>` tree). The XDG `index.theme` is not
+    /// required.
     #[inline]
     pub fn with_extra_paths<'b: 'a>(mut self, paths: &'b [PathBuf]) -> Self {
         self.extra_paths = paths;
@@ -274,29 +278,18 @@ impl<'a> LookupBuilder<'a> {
         }
 
         if !self.extra_paths.is_empty() {
-            let extensions = if self.force_svg {
-                [".svg", ".png", ".xpm"]
+            let extensions: &[&'static str] = if self.force_svg {
+                &[".svg", ".png", ".xpm"]
             } else {
-                [".png", ".svg", ".xpm"]
+                &[".png", ".svg", ".xpm"]
             };
-            let mut name_buf = String::new();
-
-            let result = extensions
-                .into_iter()
-                .try_for_each(|ext| {
-                    self.extra_paths.iter().try_for_each(|dir| {
-                        let mut path = dir.clone();
-                        if try_build_icon_path(&mut path, &mut name_buf, self.name, ext) {
-                            return ControlFlow::Break(path);
-                        }
-                        name_buf.clear();
-                        ControlFlow::Continue(())
-                    })
-                })
-                .break_value();
-
-            if result.is_some() {
-                return result;
+            const EXTRA_PATH_WALK_DEPTH: u32 = 5;
+            if let Some(found) = self
+                .extra_paths
+                .iter()
+                .find_map(|dir| search_subtree(dir, self.name, extensions, EXTRA_PATH_WALK_DEPTH))
+            {
+                return Some(found);
             }
         }
 
@@ -618,5 +611,78 @@ mod test {
             matches!(expected_cache_result, CacheEntry::NotFound(..)),
             "When lookup fails a first time, subsequent attempts should fail from cache"
         );
+    }
+
+    // Self-contained tests for `with_extra_paths`. A small Drop-guarded temp
+    // directory keeps the dev-dependency surface unchanged.
+    struct TempDir(PathBuf);
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "freedesktop-icons-test-{}-{n}-{tag}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+        fn touch(&self, rel: &str) -> PathBuf {
+            let abs = self.0.join(rel);
+            std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+            std::fs::write(&abs, b"").unwrap();
+            abs
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn extra_paths_flat() {
+        // JetBrains Toolbox: <theme_path>/toolbox-tray-color.png
+        let tmp = TempDir::new("flat");
+        let expected = tmp.touch("freedesktop-icons-test-flat.png");
+        let found = lookup("freedesktop-icons-test-flat")
+            .with_extra_paths(&[tmp.0.clone()])
+            .find();
+        assert_eq!(found.as_deref(), Some(expected.as_path()));
+    }
+
+    #[test]
+    fn extra_paths_hicolor_tree() {
+        // Dropbox: <theme_path>/hicolor/<size>/<context>/<file>
+        let tmp = TempDir::new("hicolor");
+        let expected = tmp.touch("hicolor/16x16/status/freedesktop-icons-test-hicolor.png");
+        let found = lookup("freedesktop-icons-test-hicolor")
+            .with_extra_paths(&[tmp.0.clone()])
+            .find();
+        assert_eq!(found.as_deref(), Some(expected.as_path()));
+    }
+
+    #[test]
+    fn extra_paths_prefer_svg_when_forced() {
+        let tmp = TempDir::new("prefer-svg");
+        tmp.touch("icons/freedesktop-icons-test-prefer.png");
+        let expected = tmp.touch("icons/freedesktop-icons-test-prefer.svg");
+        let found = lookup("freedesktop-icons-test-prefer")
+            .force_svg()
+            .with_extra_paths(&[tmp.0.clone()])
+            .find();
+        assert_eq!(found.as_deref(), Some(expected.as_path()));
+    }
+
+    #[test]
+    fn extra_paths_miss_returns_none_without_falling_through() {
+        // Empty tree + a name unlikely to exist on the host's system themes.
+        let tmp = TempDir::new("miss");
+        let found = lookup("freedesktop-icons-test-no-such-icon-7f3a")
+            .with_extra_paths(&[tmp.0.clone()])
+            .find();
+        assert_eq!(found, None);
     }
 }

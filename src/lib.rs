@@ -56,14 +56,15 @@ use theme::BASE_PATHS;
 
 use crate::cache::{CACHE, CacheEntry};
 use crate::theme::{THEMES, Theme, try_build_icon_path};
+use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
 use std::io::BufRead;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
-use std::time::Instant;
 
 mod cache;
 mod theme;
+mod walk_dir;
 
 /// Return the list of installed themes on the system
 ///
@@ -274,29 +275,48 @@ impl<'a> LookupBuilder<'a> {
         }
 
         if !self.extra_paths.is_empty() {
-            let extensions = if self.force_svg {
-                [".svg", ".png", ".xpm"]
-            } else {
-                [".png", ".svg", ".xpm"]
-            };
-            let mut name_buf = String::new();
+            let mut svg_path = None;
+            let mut png_path = None;
+            let mut xpm_path = None;
 
-            let result = extensions
-                .into_iter()
-                .try_for_each(|ext| {
-                    self.extra_paths.iter().try_for_each(|dir| {
-                        let mut path = dir.clone();
-                        if try_build_icon_path(&mut path, &mut name_buf, self.name, ext) {
-                            return ControlFlow::Break(path);
+            for file_path in walk_dir::Iter::new(self.extra_paths.iter().cloned()) {
+                if let Some(file_name) = file_path.file_stem().and_then(OsStr::to_str)
+                    && file_name != self.name
+                {
+                    continue;
+                }
+
+                if let Some(this_ext) = file_path.extension().and_then(OsStr::to_str) {
+                    match this_ext {
+                        "svg" => {
+                            svg_path = Some(file_path);
+                            if self.force_svg || png_path.is_some() {
+                                break;
+                            }
                         }
-                        name_buf.clear();
-                        ControlFlow::Continue(())
-                    })
-                })
-                .break_value();
 
-            if result.is_some() {
-                return result;
+                        "png" => {
+                            png_path = Some(file_path);
+                            if !self.force_svg || svg_path.is_some() {
+                                break;
+                            }
+                        }
+
+                        "xpm" => {
+                            xpm_path = Some(file_path);
+                        }
+
+                        _ => (),
+                    }
+                }
+            }
+
+            if let Some(path) = if self.force_svg {
+                svg_path.or(png_path).or(xpm_path)
+            } else {
+                png_path.or(svg_path).or(xpm_path)
+            } {
+                return Some(path);
             }
         }
 

@@ -261,6 +261,11 @@ impl<'a> LookupBuilder<'a> {
 
     // Recursively lookup for icon in the given theme and its parents
     fn lookup_in_theme(&self) -> Option<PathBuf> {
+        // Consult an app's private extra_paths before the cache; results are never cached.
+        if let Some(path) = self.lookup_in_extra_paths() {
+            return Some(path);
+        }
+
         // If cache is activated, attempt to get the icon there first
         // If the icon was previously search but not found, we return
         // `None` early, otherwise, attempt to perform a lookup
@@ -271,52 +276,6 @@ impl<'a> LookupBuilder<'a> {
                     return None;
                 }
                 _ => (),
-            }
-        }
-
-        if !self.extra_paths.is_empty() {
-            let mut svg_path = None;
-            let mut png_path = None;
-            let mut xpm_path = None;
-
-            for file_path in walk_dir::Iter::new(self.extra_paths.iter().cloned()) {
-                if let Some(file_name) = file_path.file_stem().and_then(OsStr::to_str)
-                    && file_name != self.name
-                {
-                    continue;
-                }
-
-                if let Some(this_ext) = file_path.extension().and_then(OsStr::to_str) {
-                    match this_ext {
-                        "svg" => {
-                            svg_path = Some(file_path);
-                            if self.force_svg || png_path.is_some() {
-                                break;
-                            }
-                        }
-
-                        "png" => {
-                            png_path = Some(file_path);
-                            if !self.force_svg || svg_path.is_some() {
-                                break;
-                            }
-                        }
-
-                        "xpm" => {
-                            xpm_path = Some(file_path);
-                        }
-
-                        _ => (),
-                    }
-                }
-            }
-
-            if let Some(path) = if self.force_svg {
-                svg_path.or(png_path).or(xpm_path)
-            } else {
-                png_path.or(svg_path).or(xpm_path)
-            } {
-                return Some(path);
             }
         }
 
@@ -379,6 +338,56 @@ impl<'a> LookupBuilder<'a> {
                     icon
                 }
             })
+    }
+
+    /// Walk the app-private `extra_paths` for a file matching `self.name`.
+    /// Results are never cached.
+    fn lookup_in_extra_paths(&self) -> Option<PathBuf> {
+        if self.extra_paths.is_empty() {
+            return None;
+        }
+
+        let mut svg_path = None;
+        let mut png_path = None;
+        let mut xpm_path = None;
+
+        for file_path in walk_dir::Iter::new(self.extra_paths.iter().cloned()) {
+            if let Some(file_name) = file_path.file_stem().and_then(OsStr::to_str)
+                && file_name != self.name
+            {
+                continue;
+            }
+
+            if let Some(this_ext) = file_path.extension().and_then(OsStr::to_str) {
+                match this_ext {
+                    "svg" => {
+                        svg_path = Some(file_path);
+                        if self.force_svg || png_path.is_some() {
+                            break;
+                        }
+                    }
+
+                    "png" => {
+                        png_path = Some(file_path);
+                        if !self.force_svg || svg_path.is_some() {
+                            break;
+                        }
+                    }
+
+                    "xpm" => {
+                        xpm_path = Some(file_path);
+                    }
+
+                    _ => (),
+                }
+            }
+        }
+
+        if self.force_svg {
+            svg_path.or(png_path).or(xpm_path)
+        } else {
+            png_path.or(svg_path).or(xpm_path)
+        }
     }
 
     #[inline]
@@ -638,5 +647,106 @@ mod test {
             matches!(expected_cache_result, CacheEntry::NotFound(..)),
             "When lookup fails a first time, subsequent attempts should fail from cache"
         );
+    }
+
+    // --- extra_paths resolver tests ----------------------------------------
+
+    /// RAII scratch directory of placeholder files; cleans up on drop.
+    struct TempTree {
+        root: PathBuf,
+    }
+
+    impl TempTree {
+        fn new(tag: &str) -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let pid = std::process::id();
+            let root = std::env::temp_dir().join(format!("fdi_extra_paths_{tag}_{pid}_{n}"));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).expect("create temp tree root");
+            Self { root }
+        }
+
+        /// Create a placeholder file at `rel`; returns its canonicalized path.
+        fn touch(&self, rel: &str) -> PathBuf {
+            let path = self.root.join(rel);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("create parent dirs");
+            }
+            std::fs::write(&path, [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a])
+                .expect("write placeholder file");
+            path.canonicalize().unwrap_or(path)
+        }
+    }
+
+    impl Drop for TempTree {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn extra_paths_flat_layout_resolves() {
+        let tree = TempTree::new("flat");
+        let expected = tree.touch("my-private-icon.png");
+        let extra = [tree.root.clone()];
+
+        let found = lookup("my-private-icon")
+            .with_extra_paths(&extra)
+            .find();
+
+        asserting!("a flat extra_paths layout should still resolve")
+            .that(&found)
+            .is_some()
+            .is_equal_to(expected);
+    }
+
+    #[test]
+    fn extra_paths_hicolor_tree_resolves() {
+        // The Dropbox case: an app ships a private hicolor hierarchy.
+        let tree = TempTree::new("hicolor");
+        let expected = tree.touch("hicolor/48x48/apps/dropbox.png");
+        let extra = [tree.root.clone()];
+
+        let found = lookup("dropbox")
+            .with_size(48)
+            .with_extra_paths(&extra)
+            .find();
+
+        asserting!("a private hicolor tree under extra_paths should resolve")
+            .that(&found)
+            .is_some()
+            .is_equal_to(expected);
+    }
+
+    #[test]
+    fn extra_paths_resolves_despite_negative_cache() {
+        // A prior negative-cache miss for this name must not shadow the extra_paths walk.
+        let tree = TempTree::new("cached");
+        let expected = tree.touch("cached-only-icon.png");
+        let extra = [tree.root.clone()];
+
+        // Seed a negative cache entry for the bare name (no theme will have it).
+        let miss = lookup("cached-only-icon").with_cache().find();
+        assert_that!(miss).is_none();
+        assert!(
+            matches!(
+                CACHE.get("hicolor", 24, 1, "cached-only-icon"),
+                CacheEntry::NotFound(..)
+            ),
+            "precondition: the bare-name lookup should have cached a miss"
+        );
+
+        // Now the same name via extra_paths (with cache still enabled) must resolve.
+        let found = lookup("cached-only-icon")
+            .with_cache()
+            .with_extra_paths(&extra)
+            .find();
+
+        asserting!("extra_paths must be consulted before the (negative) cache")
+            .that(&found)
+            .is_some()
+            .is_equal_to(expected);
     }
 }

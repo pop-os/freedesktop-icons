@@ -340,54 +340,74 @@ impl<'a> LookupBuilder<'a> {
             })
     }
 
-    /// Walk the app-private `extra_paths` for a file matching `self.name`.
-    /// Results are never cached.
+    /// Size-aware walk of the app-private `extra_paths`, returning the candidate
+    /// closest to the requested size. Results are never cached.
     fn lookup_in_extra_paths(&self) -> Option<PathBuf> {
         if self.extra_paths.is_empty() {
             return None;
         }
 
-        let mut svg_path = None;
-        let mut png_path = None;
-        let mut xpm_path = None;
+        // Extension preference: lower rank wins ties between equal-sized candidates.
+        let ext_rank = |ext: &str| -> Option<u8> {
+            let order: [&str; 3] = if self.force_svg {
+                ["svg", "png", "xpm"]
+            } else {
+                ["png", "svg", "xpm"]
+            };
+            order.iter().position(|e| *e == ext).map(|p| p as u8)
+        };
+
+        let target = u32::from(self.size).max(1) * u32::from(self.scale).max(1);
+
+        // Sort key (smaller wins): (size_class, tiebreak, ext_rank).
+        let mut best: Option<((u8, i64, u8), PathBuf)> = None;
 
         for file_path in walk_dir::Iter::new(self.extra_paths.iter().cloned()) {
-            if let Some(file_name) = file_path.file_stem().and_then(OsStr::to_str)
-                && file_name != self.name
-            {
+            let Some(file_name) = file_path.file_stem().and_then(OsStr::to_str) else {
+                continue;
+            };
+            if file_name != self.name {
                 continue;
             }
 
-            if let Some(this_ext) = file_path.extension().and_then(OsStr::to_str) {
-                match this_ext {
-                    "svg" => {
-                        svg_path = Some(file_path);
-                        if self.force_svg || png_path.is_some() {
-                            break;
-                        }
-                    }
+            let Some(ext) = file_path.extension().and_then(OsStr::to_str) else {
+                continue;
+            };
+            let Some(ext_rank) = ext_rank(ext) else {
+                continue;
+            };
 
-                    "png" => {
-                        png_path = Some(file_path);
-                        if !self.force_svg || svg_path.is_some() {
-                            break;
-                        }
-                    }
+            // Parse size only from components below the matching root, so a numeric
+            // ancestor (e.g. the UID in /run/user/1000) is never read as a size.
+            let relative = self
+                .extra_paths
+                .iter()
+                .filter_map(|root| root.canonicalize().ok())
+                .find_map(|root| {
+                    file_path
+                        .strip_prefix(&root)
+                        .ok()
+                        .map(std::path::Path::to_path_buf)
+                });
+            let parsed = match relative.as_deref() {
+                Some(rel) => parse_size_from_path(rel, ext),
+                None => None,
+            };
+            let (size_class, tiebreak) = match parsed {
+                None => (0u8, 0i64),                       // scalable / size-agnostic: ideal
+                Some(size) if size == target => (0, 0),    // exact
+                Some(size) if size > target => (1, i64::from(size)), // downscale: smallest >= target
+                Some(size) => (2, -i64::from(size)),       // upscale: largest available
+            };
 
-                    "xpm" => {
-                        xpm_path = Some(file_path);
-                    }
-
-                    _ => (),
-                }
+            let key = (size_class, tiebreak, ext_rank);
+            match &best {
+                Some((best_key, _)) if *best_key <= key => {}
+                _ => best = Some((key, file_path)),
             }
         }
 
-        if self.force_svg {
-            svg_path.or(png_path).or(xpm_path)
-        } else {
-            png_path.or(svg_path).or(xpm_path)
-        }
+        best.map(|(_, path)| path)
     }
 
     #[inline]
@@ -469,6 +489,44 @@ impl<'a> LookupBuilder<'a> {
             .iter()
             .find_map(|t| self.search_theme(searched_themes, t))
     }
+}
+
+/// Infer the pixel size from a root-relative path: an `NxN` or bare `N` directory
+/// component yields that size; `scalable`/`svg` yield `None` (size-agnostic).
+fn parse_size_from_path(path: &std::path::Path, ext: &str) -> Option<u32> {
+    if ext.eq_ignore_ascii_case("svg") {
+        return None;
+    }
+
+    let parts: Vec<&str> = path
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+
+    // Scan directories leaf-first (skip the file name) so the nearest size wins.
+    for part in parts.iter().rev().skip(1) {
+        if part.eq_ignore_ascii_case("scalable") {
+            return None;
+        }
+
+        // `48x48` -> 48
+        if let Some((w, h)) = part.split_once(['x', 'X'])
+            && let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>())
+            && w == h
+            && w != 0
+        {
+            return Some(w);
+        }
+
+        // bare `48`
+        if let Ok(size) = part.parse::<u32>()
+            && size != 0
+        {
+            return Some(size);
+        }
+    }
+
+    None
 }
 
 // WARNING: these test are highly dependent on your installed icon-themes.
@@ -721,6 +779,38 @@ mod test {
     }
 
     #[test]
+    fn extra_paths_size_aware_picks_requested_size() {
+        // Both 16x16 and 48x48 present: the requested size must be picked.
+        let tree = TempTree::new("sizeaware");
+        let _small = tree.touch("hicolor/16x16/apps/sizey.png");
+        let expected = tree.touch("hicolor/48x48/apps/sizey.png");
+        let extra = [tree.root.clone()];
+
+        let found = lookup("sizey")
+            .with_size(48)
+            .with_extra_paths(&extra)
+            .find();
+
+        asserting!("extra_paths walk must be size-aware and pick 48x48")
+            .that(&found)
+            .is_some()
+            .is_equal_to(expected);
+
+        // And asking for 16 must pick the 16x16 asset.
+        let small_expected = tree.root.join("hicolor/16x16/apps/sizey.png");
+        let small_expected = small_expected.canonicalize().unwrap_or(small_expected);
+        let found_small = lookup("sizey")
+            .with_size(16)
+            .with_extra_paths(&extra)
+            .find();
+
+        asserting!("extra_paths walk must be size-aware and pick 16x16")
+            .that(&found_small)
+            .is_some()
+            .is_equal_to(small_expected);
+    }
+
+    #[test]
     fn extra_paths_resolves_despite_negative_cache() {
         // A prior negative-cache miss for this name must not shadow the extra_paths walk.
         let tree = TempTree::new("cached");
@@ -748,5 +838,32 @@ mod test {
             .that(&found)
             .is_some()
             .is_equal_to(expected);
+    }
+
+    #[test]
+    fn extra_paths_numeric_root_does_not_misparse_as_size() {
+        // A numeric root basename (e.g. /run/user/<uid>) must not be read as a size.
+        let tree = TempTree::new("numeric");
+        let numeric_root = tree.root.join("1000");
+        std::fs::create_dir_all(&numeric_root).unwrap();
+
+        let png = numeric_root.join("flatey.png");
+        let svg = numeric_root.join("flatey.svg");
+        for p in [&png, &svg] {
+            std::fs::write(p, [0x89, b'P', b'N', b'G']).unwrap();
+        }
+        let png = png.canonicalize().unwrap_or(png);
+        let extra = [numeric_root.clone()];
+
+        // Default png>svg priority must hold: the "1000" root must not be a size.
+        let found = lookup("flatey")
+            .with_size(32)
+            .with_extra_paths(&extra)
+            .find();
+
+        asserting!("numeric root basename must not be read as icon size")
+            .that(&found)
+            .is_some()
+            .is_equal_to(png);
     }
 }

@@ -55,9 +55,9 @@ impl Theme {
         )
     }
 
-    fn try_fold_icon_path<'a>(
+    fn try_fold_icon_path(
         &self,
-        dir_names: Vec<(&'a str, i16, bool)>,
+        dir_names: Vec<(&str, i16, bool)>,
         name: &str,
         prefer_svg: bool,
     ) -> Option<PathBuf> {
@@ -114,14 +114,24 @@ impl Theme {
         );
 
         unsorted.sort_by(|a, b| {
-            let ordering = if prefer_svg {
-                b.2.cmp(&a.2)
+            if prefer_svg && (a.2 || b.2) {
+                if a.2 == b.2 {
+                    a.1.cmp(&b.1)
+                } else {
+                    b.2.cmp(&a.2)
+                }
+            } else if a.1 == b.1 {
+                Ordering::Equal
+            } else if a.1 == 0 {
+                Ordering::Less
+            } else if b.1 == 0 {
+                Ordering::Greater
+            } else if a.1 == (size * scale) as i16 {
+                Ordering::Less
+            } else if b.1 == (size * scale) as i16 {
+                Ordering::Greater
             } else {
-                a.2.cmp(&b.2)
-            };
-            match ordering {
-                Ordering::Equal => a.1.cmp(&b.1),
-                _ => ordering,
+                a.1.cmp(&b.1)
             }
         });
 

@@ -12,7 +12,7 @@ pub struct Directory<'a> {
 impl Directory<'_> {
     pub fn directory_size_distance(&self, size: i16, scale: i16) -> i16 {
         match self.type_ {
-            DirectoryType::Fixed => self.size * self.scale - size * scale,
+            DirectoryType::Fixed => (self.size * self.scale) - (size * scale),
 
             DirectoryType::Scalable => {
                 let scaled_requested_size = size * scale;
@@ -22,7 +22,7 @@ impl Directory<'_> {
                 } else {
                     let max_scaled_size = self.maxsize * self.scale;
                     if scaled_requested_size < max_scaled_size {
-                        scaled_requested_size - max_scaled_size
+                        max_scaled_size - scaled_requested_size
                     } else {
                         0
                     }

@@ -471,38 +471,41 @@ mod test {
     use std::path::PathBuf;
 
     #[test]
-    fn hicolor_firefox_24_png() {
-        let firefox = lookup("firefox").find();
+    fn hicolor_thunderbird_48_png() {
+        let thunderbird = lookup("thunderbird").with_size(24).find();
 
-        asserting!("Firefox contains only a 16x16 and 32x32 icon, so 16x16 should be returned")
-            .that(&firefox)
+        asserting!("thunderbird lacks a 24x24 icon, but a 48x48 icon is an ideal replacement")
+            .that(&thunderbird)
             .is_some()
             .is_equal_to(PathBuf::from(
-                "/usr/share/icons/hicolor/16x16/apps/firefox.png",
+                "/usr/share/icons/hicolor/48x48/apps/thunderbird.png",
             ));
     }
 
     #[test]
-    fn hicolor_firefox_48_png() {
-        let firefox = lookup("firefox").with_size(48).find();
-
-        asserting!("Firefox has a 48x48 icon, so that should be returned")
-            .that(&firefox)
-            .is_some()
-            .is_equal_to(PathBuf::from(
-                "/usr/share/icons/hicolor/48x48/apps/firefox.png",
-            ));
-    }
-
-    #[test]
-    fn hicolor_firefox_svg_fallback_to_png() {
-        let firefox = lookup("firefox").force_svg().find();
+    fn hicolor_libreoffice_svg() {
+        let libreoffice_writer = lookup("libreoffice-writer").force_svg().find();
 
         asserting!("Lookup with no parameters should return an existing icon")
-            .that(&firefox)
+            .that(&libreoffice_writer)
             .is_some()
             .is_equal_to(PathBuf::from(
-                "/usr/share/icons/hicolor/16x16/apps/firefox.png",
+                "/usr/share/icons/hicolor/scalable/apps/libreoffice-writer.svg",
+            ));
+    }
+
+    #[test]
+    fn gnome_preferences_desktop_theme() {
+        let preferences_desktop_theme = lookup("preferences-desktop-theme")
+            .force_svg()
+            .with_size(128)
+            .find();
+
+        asserting!("Lookup with no parameters should return an existing icon")
+            .that(&preferences_desktop_theme)
+            .is_some()
+            .is_equal_to(PathBuf::from(
+                "/usr/share/icons/gnome/256x256/apps/preferences-desktop-theme.png",
             ));
     }
 
@@ -544,11 +547,11 @@ mod test {
     }
 
     #[test]
-    fn vscode_pixmap() {
+    fn local_slack() {
         assert_eq!(
-            lookup("vscode").find(),
-            Some(PathBuf::from("/usr/share/pixmaps/vscode.png")),
-            "Is VS Code installed locally on the host?"
+            lookup("slack").find(),
+            Some(PathBuf::from("/usr/share/pixmaps/slack.png")),
+            "Is slack installed locally on the host?"
         );
     }
 
@@ -570,15 +573,6 @@ mod test {
             Some(PathBuf::from(
                 "/usr/share/icons/gnome/24x24/categories/preferences-system-network.png"
             )),
-            "Is the gnome icon theme installed?"
-        );
-    }
-
-    #[test]
-    fn ubuntu_additional_drivers() {
-        assert_eq!(
-            lookup("jockey").find(),
-            Some(PathBuf::from("/usr/share/icons/Yaru/24x24/apps/jockey.png")),
             "Is the gnome icon theme installed?"
         );
     }

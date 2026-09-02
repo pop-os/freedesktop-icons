@@ -17,15 +17,13 @@ impl Directory<'_> {
             DirectoryType::Scalable => {
                 let scaled_requested_size = size * scale;
                 let min_scaled_size = self.minsize * self.scale;
+                let max_scaled_size = self.maxsize * self.scale;
                 if scaled_requested_size < min_scaled_size {
                     min_scaled_size - scaled_requested_size
+                } else if scaled_requested_size > max_scaled_size {
+                    scaled_requested_size - max_scaled_size
                 } else {
-                    let max_scaled_size = self.maxsize * self.scale;
-                    if scaled_requested_size < max_scaled_size {
-                        max_scaled_size - scaled_requested_size
-                    } else {
-                        0
-                    }
+                    0
                 }
             }
 

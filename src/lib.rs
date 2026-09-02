@@ -393,12 +393,12 @@ impl<'a> LookupBuilder<'a> {
 
     #[inline]
     fn cache_lookup(&self, theme: &str) -> CacheEntry {
-        CACHE.get(theme, self.size, self.scale, self.name)
+        CACHE.get(theme, self.size, self.scale, self.force_svg, self.name)
     }
 
     #[inline]
     fn store(&self, theme: &str, icon: Option<PathBuf>) -> Option<PathBuf> {
-        CACHE.insert(theme, self.size, self.scale, self.name, &icon);
+        CACHE.insert(theme, self.size, self.scale, self.force_svg, self.name, &icon);
         icon
     }
 
@@ -626,7 +626,7 @@ mod test {
 
         assert_that!(not_found).is_none();
 
-        let expected_cache_result = CACHE.get("hicolor", 24, 1, "not-found");
+        let expected_cache_result = CACHE.get("hicolor", 24, 1, false, "not-found");
 
         assert!(
             matches!(expected_cache_result, CacheEntry::NotFound(..)),

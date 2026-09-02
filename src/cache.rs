@@ -6,7 +6,7 @@ use std::time::Instant;
 pub(crate) static CACHE: LazyLock<Cache> = LazyLock::new(Cache::default);
 type Theme = Box<str>;
 type Icon = Box<str>;
-type SizedMap = BTreeMap<(u16, u16), CacheEntry>;
+type SizedMap = BTreeMap<(u16, u16, bool), CacheEntry>;
 type IconMap = BTreeMap<Icon, SizedMap>;
 type ThemeMap = BTreeMap<Theme, IconMap>;
 
@@ -33,6 +33,7 @@ impl Cache {
         theme: &str,
         size: u16,
         scale: u16,
+        force_svg: bool,
         icon_name: &str,
         icon_path: &Option<P>,
     ) {
@@ -47,16 +48,23 @@ impl Cache {
             .or_insert_with(IconMap::default)
             .entry(icon_name.into())
             .or_insert_with(BTreeMap::default)
-            .insert((size, scale), entry);
+            .insert((size, scale, force_svg), entry);
     }
 
-    pub fn get(&self, theme: &str, size: u16, scale: u16, icon_name: &str) -> CacheEntry {
+    pub fn get(
+        &self,
+        theme: &str,
+        size: u16,
+        scale: u16,
+        force_svg: bool,
+        icon_name: &str,
+    ) -> CacheEntry {
         let inner = self.0.read().unwrap();
 
         inner
             .get(theme)
             .and_then(|icon_map| icon_map.get(icon_name))
-            .and_then(|icon_map| icon_map.get(&(size, scale)).cloned())
+            .and_then(|icon_map| icon_map.get(&(size, scale, force_svg)).cloned())
             .unwrap_or(CacheEntry::Unknown)
     }
 

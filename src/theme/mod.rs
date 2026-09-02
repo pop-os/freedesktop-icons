@@ -1,8 +1,6 @@
-use crate::theme::directories::DirectoryType;
 use crate::theme::paths::ThemePath;
 use memmap2::Mmap;
 pub(crate) use paths::BASE_PATHS;
-use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 use std::os::unix::ffi::OsStrExt;
@@ -57,7 +55,7 @@ impl Theme {
 
     fn try_fold_icon_path(
         &self,
-        dir_names: Vec<(&str, i16, bool)>,
+        dir_names: Vec<(&str, u8, i16)>,
         name: &str,
         prefer_svg: bool,
     ) -> Option<PathBuf> {
@@ -101,38 +99,45 @@ impl Theme {
         file: &'a [u8],
         size: u16,
         scale: u16,
-        prefer_svg: bool,
-    ) -> Vec<(&'a str, i16, bool)> {
-        let mut unsorted = self.get_all_directories(file).fold(
-            Vec::<(&'a str, i16, bool)>::new(),
-            |mut unsorted, directory| {
-                let is_scalable = matches!(directory.type_, DirectoryType::Scalable);
-                let distance = directory.directory_size_distance(size as i16, scale as i16);
-                unsorted.push((directory.name, distance.abs(), is_scalable));
-                unsorted
-            },
-        );
+        _prefer_svg: bool,
+    ) -> Vec<(&'a str, u8, i16)> {
+        let requested = i16::saturating_mul(size as i16, scale as i16);
+        let double = requested.saturating_mul(2);
 
-        unsorted.sort_by(|a, b| {
-            if prefer_svg && (a.2 || b.2) {
-                if a.2 == b.2 {
-                    a.1.cmp(&b.1)
-                } else {
-                    b.2.cmp(&a.2)
-                }
-            } else if a.1 == b.1 {
-                Ordering::Equal
-            } else if a.1 == 0 {
-                Ordering::Less
-            } else if b.1 == 0 {
-                Ordering::Greater
-            } else if a.1 == (size * scale) as i16 {
-                Ordering::Less
-            } else if b.1 == (size * scale) as i16 {
-                Ordering::Greater
+        // Logic for ranking directories:
+        //   0 — exact match
+        //   1 — exactly 2× the request
+        //   2 — anything else
+        //
+        // Note: `DirectorySizeDistance` returns 0 for *any* size within a `Scalable` dir's MinSize..MaxSize range.
+        // That's right for true SVG dirs but wrong for raster dirs hicolor also tags `Scalable` (e.g. `256x256`, `512x512`)
+        // ranking those at distance 0 let a big raster beat the genuinely-closest size (a 256px PNG for a 96px request).
+        let rank = |nominal: i16| -> u8 {
+            if nominal == requested {
+                0
+            } else if nominal == double {
+                1
             } else {
-                a.1.cmp(&b.1)
+                2
             }
+        };
+
+        let mut unsorted: Vec<(&'a str, u8, i16)> = self
+            .get_all_directories(file)
+            .map(|directory| {
+                let nominal = i16::saturating_mul(directory.size, directory.scale);
+                (directory.name, rank(nominal), nominal)
+            })
+            .collect();
+
+        // Rank first, then the nominal size closest to the request, then the
+        // larger variant on a tie (e.g. 40px sits exactly between the 32 and 48
+        // dirs at 1.25× scale): downscaling a bigger source beats upscaling a
+        // smaller one, so it stays crisp.
+        unsorted.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| (a.2 - requested).abs().cmp(&(b.2 - requested).abs()))
+                .then_with(|| b.2.cmp(&a.2))
         });
 
         unsorted
